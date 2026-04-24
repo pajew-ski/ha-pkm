@@ -2,6 +2,7 @@
  * file-tree.js – Phase 8+9: drag-and-drop move, improved edge cases
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 const EXPAND_KEY = "ha-pkm-tree-expand";
 
@@ -209,7 +210,7 @@ export class PkmFileTree extends LitElement {
         ${isFolder
           ? html`<span class="arrow ${isOpen ? "open" : ""}">▶</span>`
           : html`<span style="width:16px;display:inline-block"></span>`}
-        <span class="icon">${isFolder ? (isOpen ? "📂" : "📁") : "📄"}</span>
+        <span class="icon">${isFolder ? (isOpen ? icon("folderOpen", 16) : icon("folder", 16)) : icon("file", 16)}</span>
         ${isRen
           ? html`<input class="rename-input" .value=${this._renameVal}
               @input=${(e) => { this._renameVal = e.target.value; }}
@@ -233,14 +234,14 @@ export class PkmFileTree extends LitElement {
     return html`
       <div class="ctx-menu" style="left:${x}px; top:${y}px;" @click=${(e) => e.stopPropagation()}>
         ${isFolder ? html`
-          <div class="ctx-item" @click=${() => this._newNote(node.path)}>📄 New Note</div>
-          <div class="ctx-item" @click=${() => this._newFolder(node.path)}>📁 New Folder</div>
+          <div class="ctx-item" @click=${() => this._newNote(node.path)}>${icon("file", 14)} New Note</div>
+          <div class="ctx-item" @click=${() => this._newFolder(node.path)}>${icon("folder", 14)} New Folder</div>
           <div class="ctx-sep"></div>
         ` : ""}
-        <div class="ctx-item" @click=${() => this._startRename(node)}>✏️ Rename</div>
-        <div class="ctx-item" @click=${() => this._copyPath(node)}>📋 Copy Path</div>
+        <div class="ctx-item" @click=${() => this._startRename(node)}>${icon("pencil", 14)} Rename</div>
+        <div class="ctx-item" @click=${() => this._copyPath(node)}>${icon("copy", 14)} Copy Path</div>
         <div class="ctx-sep"></div>
-        <div class="ctx-item danger" @click=${() => this._delete(node)}>🗑️ Delete</div>
+        <div class="ctx-item danger" @click=${() => this._delete(node)}>${icon("delete", 14)} Delete</div>
       </div>
     `;
   }
@@ -250,8 +251,8 @@ export class PkmFileTree extends LitElement {
       <div class="header">
         Files
         <div class="header-actions">
-          <button class="pkm-icon-btn" title="New note"   @click=${() => this._newNote("")}>📄</button>
-          <button class="pkm-icon-btn" title="New folder" @click=${() => this._newFolder("")}>📁</button>
+          <button class="pkm-icon-btn" title="New note"   @click=${() => this._newNote("")}>${icon("file", 16)}</button>
+          <button class="pkm-icon-btn" title="New folder" @click=${() => this._newFolder("")}>${icon("folder", 16)}</button>
         </div>
       </div>
       <div class="scroll">

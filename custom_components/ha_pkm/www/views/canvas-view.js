@@ -11,6 +11,7 @@
  * - Pending edge preview line during drag
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 function uuid() {
   return crypto.randomUUID
@@ -352,6 +353,99 @@ export class PkmCanvasView extends LitElement {
 
   _closeCtx() { this._ctx = null; }
 
+  // ── Touch support ────────────────────────────────────────────────────────
+
+  _onAreaTouchStart(e) {
+    if (e.touches.length === 1) {
+      // Single finger = pan
+      e.preventDefault();
+      const t = e.touches[0];
+      const sx = t.clientX - this._vp.x, sy = t.clientY - this._vp.y;
+      this._touchPan = { sx, sy };
+      this._touchPinch = null;
+    } else if (e.touches.length === 2) {
+      // Two fingers = pinch-zoom
+      e.preventDefault();
+      const [a, b] = [e.touches[0], e.touches[1]];
+      this._touchPinch = {
+        dist: Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY),
+        zoom: this._vp.zoom,
+        cx: (a.clientX + b.clientX) / 2,
+        cy: (a.clientY + b.clientY) / 2,
+      };
+      this._touchPan = null;
+    }
+  }
+
+  _onAreaTouchMove(e) {
+    e.preventDefault();
+    if (this._touchPan && e.touches.length === 1) {
+      const t = e.touches[0];
+      this._vp = { ...this._vp, x: t.clientX - this._touchPan.sx, y: t.clientY - this._touchPan.sy };
+    } else if (this._touchPinch && e.touches.length === 2) {
+      const [a, b] = [e.touches[0], e.touches[1]];
+      const dist = Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+      const nz = Math.min(5, Math.max(0.15, this._touchPinch.zoom * (dist / this._touchPinch.dist)));
+      const { cx, cy } = this._touchPinch;
+      const rect = this.shadowRoot.querySelector(".canvas-area").getBoundingClientRect();
+      const lx = cx - rect.left, ly = cy - rect.top;
+      this._vp = { x: lx - (lx - this._vp.x) * (nz / this._vp.zoom), y: ly - (ly - this._vp.y) * (nz / this._vp.zoom), zoom: nz };
+    }
+  }
+
+  _onAreaTouchEnd() {
+    this._touchPan = null;
+    this._touchPinch = null;
+  }
+
+  _onNodeTouchStart(e, nodeId) {
+    if (e.touches.length !== 1) return;
+    e.stopPropagation();
+    if (!this._sel.has(nodeId)) this._sel = new Set([nodeId]);
+    const node = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const t0 = e.touches[0];
+    const startX = t0.clientX, startY = t0.clientY;
+    const origX = node.x, origY = node.y;
+    let moved = false;
+    const onMove = (e2) => {
+      const t = e2.touches[0];
+      const dx = (t.clientX - startX) / this._vp.zoom;
+      const dy = (t.clientY - startY) / this._vp.zoom;
+      moved = true;
+      this._canvas = { ...this._canvas,
+        nodes: this._canvas.nodes.map((n) => n.id === nodeId ? { ...n, x: origX + dx, y: origY + dy } : n) };
+    };
+    const onEnd = () => {
+      if (moved) this._scheduleAutosave();
+      window.removeEventListener("touchmove", onMove);
+      window.removeEventListener("touchend", onEnd);
+    };
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+  }
+
+  _onResizeTouchStart(e, nodeId) {
+    if (e.touches.length !== 1) return;
+    e.stopPropagation();
+    const node = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const t0 = e.touches[0];
+    const startX = t0.clientX, startY = t0.clientY;
+    const origW = node.width, origH = node.height;
+    const onMove = (e2) => {
+      const t = e2.touches[0];
+      const dw = (t.clientX - startX) / this._vp.zoom;
+      const dh = (t.clientY - startY) / this._vp.zoom;
+      this._canvas = { ...this._canvas,
+        nodes: this._canvas.nodes.map((n) => n.id === nodeId
+          ? { ...n, width: Math.max(100, origW + dw), height: Math.max(60, origH + dh) } : n) };
+    };
+    const onEnd = () => { this._scheduleAutosave(); window.removeEventListener("touchmove", onMove); window.removeEventListener("touchend", onEnd); };
+    window.addEventListener("touchmove", onMove, { passive: false });
+    window.addEventListener("touchend", onEnd);
+  }
+
   // ── Connection points (edge drawing) ────────────────────────────────────
 
   _onConnPtMouseDown(e, nodeId, side) {
@@ -493,19 +587,20 @@ export class PkmCanvasView extends LitElement {
         style="left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;
                ${node.color ? `border-color:${node.color};` : ""}"
         @mousedown=${(e) => this._onNodeMouseDown(e, node.id)}
+        @touchstart=${(e) => this._onNodeTouchStart(e, node.id)}
         @mouseenter=${() => { this._hovered = node.id; }}
         @mouseleave=${() => { this._hovered = null; }}
         @contextmenu=${(e) => this._onContextMenu(e, node.id)}
         @click=${(e) => { e.stopPropagation(); this._sel = new Set([node.id]); }}
       >
         <div class="node-header" style="${node.color ? `color:${node.color}` : ""}">
-          ${node.type === "group" ? "📦" : node.type === "note" ? "📄" : "📝"} ${node.type}
+          ${node.type === "group" ? icon("group", 14) : node.type === "note" ? icon("file", 14) : icon("text", 14)} ${node.type}
         </div>
         <div class="node-body" contenteditable="true"
           @input=${(e) => { node.content = e.target.innerText; this._scheduleAutosave(); }}
           @mousedown=${(e) => e.stopPropagation()}
         >${node.content}</div>
-        <div class="node-resize" @mousedown=${(e) => this._onResizeMouseDown(e, node.id)}>⌟</div>
+        <div class="node-resize" @mousedown=${(e) => this._onResizeMouseDown(e, node.id)} @touchstart=${(e) => this._onResizeTouchStart(e, node.id)}>${icon("resizeHandle", 12)}</div>
         ${this._renderConnPoints(node)}
       </div>
     `);
@@ -516,11 +611,11 @@ export class PkmCanvasView extends LitElement {
     return html`
       <div class="ctx-menu" style="left:${this._ctx.x}px; top:${this._ctx.y}px"
         @click=${(e) => e.stopPropagation()}>
-        <div class="ctx-item" @click=${() => this._ctxEditLabel()}>✏️ Edit label</div>
-        <div class="ctx-item" @click=${() => this._ctxDuplicate()}>📋 Duplicate</div>
-        <div class="ctx-item" @click=${() => this._ctxOpenAsNote()}>📄 Open as note</div>
+        <div class="ctx-item" @click=${() => this._ctxEditLabel()}>${icon("pencil", 14)} Edit label</div>
+        <div class="ctx-item" @click=${() => this._ctxDuplicate()}>${icon("copy", 14)} Duplicate</div>
+        <div class="ctx-item" @click=${() => this._ctxOpenAsNote()}>${icon("file", 14)} Open as note</div>
         <div class="ctx-sep"></div>
-        <div class="ctx-item ctx-danger" @click=${() => this._ctxDelete()}>🗑️ Delete</div>
+        <div class="ctx-item ctx-danger" @click=${() => this._ctxDelete()}>${icon("delete", 14)} Delete</div>
       </div>
     `;
   }
@@ -531,10 +626,10 @@ export class PkmCanvasView extends LitElement {
 
     return html`
       <div class="toolbar">
-        <button class="pkm-icon-btn" title="Save" @click=${() => this._saveCanvas()}>💾</button>
+        <button class="pkm-icon-btn" title="Save" @click=${() => this._saveCanvas()}>${icon("save", 18)}</button>
         <span class="path">${this.path || "Untitled.canvas"}</span>
         ${this._dirty ? html`<span class="dirty-dot">●</span>` : ""}
-        <button class="pkm-icon-btn" title="Delete selected (Del)" @click=${() => this._deleteSelected()}>🗑️</button>
+        <button class="pkm-icon-btn" title="Delete selected (Del)" @click=${() => this._deleteSelected()}>${icon("delete", 18)}</button>
         <span class="hint">Dblclick: new node · Wheel: zoom · Mid/Space+drag: pan · Drag port: edge</span>
       </div>
 
@@ -544,6 +639,9 @@ export class PkmCanvasView extends LitElement {
         @mousedown=${this._onAreaMouseDown}
         @click=${() => { this._sel = new Set(); }}
         @contextmenu=${(e) => e.preventDefault()}
+        @touchstart=${this._onAreaTouchStart}
+        @touchmove=${this._onAreaTouchMove}
+        @touchend=${this._onAreaTouchEnd}
       >
         <!-- Edge SVG (below nodes) -->
         <svg class="edge-svg" style="transform:${transform};transform-origin:0 0;">
@@ -564,7 +662,7 @@ export class PkmCanvasView extends LitElement {
         <!-- Empty hint -->
         ${this._canvas.nodes.length === 0 ? html`
           <div class="empty-hint">
-            <span style="font-size:48px">🔲</span>
+            <span style="opacity:0.25;color:var(--pkm-text-muted)">${icon("canvas", 48)}</span>
             <span>Double-click to create a node</span>
           </div>
         ` : ""}
@@ -572,7 +670,7 @@ export class PkmCanvasView extends LitElement {
         <!-- Zoom controls -->
         <div class="zoom-ctrl">
           <button class="pkm-icon-btn" @click=${() => { this._vp = { ...vp, zoom: Math.min(5, vp.zoom * 1.25) }; }}>+</button>
-          <button class="pkm-icon-btn" @click=${() => { this._vp = { x: 0, y: 0, zoom: 1 }; }}>⌂</button>
+          <button class="pkm-icon-btn" @click=${() => { this._vp = { x: 0, y: 0, zoom: 1 }; }}>${icon("home", 18)}</button>
           <button class="pkm-icon-btn" @click=${() => { this._vp = { ...vp, zoom: Math.max(0.15, vp.zoom * 0.8) }; }}>−</button>
         </div>
       </div>

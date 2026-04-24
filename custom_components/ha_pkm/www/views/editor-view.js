@@ -3,6 +3,7 @@
  */
 
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 import { PkmEditor } from "../editor/codemirror-setup.js";
 
 const MARKED_CDN      = "https://cdn.jsdelivr.net/npm/marked@12/+esm";
@@ -391,7 +392,7 @@ export class PkmEditorView extends LitElement {
     if (!this.path) {
       return html`
         <div class="empty-state">
-          <span class="icon">📝</span>
+          <span class="icon" style="opacity:0.25;color:var(--pkm-text-muted)">${icon("noteEdit", 48)}</span>
           <p>Open a file to start editing</p>
           <small>Ctrl+K to search · Ctrl+P for commands</small>
         </div>
@@ -409,7 +410,7 @@ export class PkmEditorView extends LitElement {
           ? html`<span class="dirty-dot" title="Unsaved changes">●</span>`
           : ""}
         <button class="pkm-icon-btn" title="Save (Ctrl+S)"
-          @click=${() => this._saveFile(this._editor?.getContent() ?? this._content)}>💾</button>
+          @click=${() => this._saveFile(this._editor?.getContent() ?? this._content)}>${icon("save", 18)}</button>
       </div>
 
       ${this._fmOpen ? this._renderFmBar() : html`

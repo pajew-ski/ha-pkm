@@ -2,6 +2,7 @@
  * backlinks-panel.js – Phase 3: backlinks + outgoing + unresolved + tags
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 export class PkmBacklinksPanel extends LitElement {
   static properties = {
@@ -168,19 +169,19 @@ export class PkmBacklinksPanel extends LitElement {
 
         ${this._renderSection("backlinks", "←", "Backlinks", this._backlinks, (p) => html`
           <div class="link-item" @click=${() => this._openFile(p)} title=${p}>
-            📄 ${p.split("/").pop().replace(/\.md$/, "")}
+            ${icon("file", 14)} ${p.split("/").pop().replace(/\.md$/, "")}
           </div>
         `)}
 
         ${this._renderSection("outgoing", "→", "Outgoing", this._outgoing, (p) => html`
           <div class="link-item" @click=${() => this._openFile(p)} title=${p}>
-            📄 ${p.split("/").pop().replace(/\.md$/, "")}
+            ${icon("file", 14)} ${p.split("/").pop().replace(/\.md$/, "")}
           </div>
         `)}
 
-        ${this._unresolved.length ? this._renderSection("unresolved", "⚠", "Unresolved", this._unresolved, (link) => html`
+        ${this._unresolved.length ? this._renderSection("unresolved", "!", "Unresolved", this._unresolved, (link) => html`
           <div class="link-item unresolved" title="Unresolved: ${link}">
-            🔗 ${link}
+            ${icon("alert", 14)} ${link}
           </div>
         `) : ""}
 

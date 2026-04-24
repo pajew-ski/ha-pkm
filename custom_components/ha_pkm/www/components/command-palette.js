@@ -2,6 +2,7 @@
  * command-palette.js – Phase 4: full command set, fuzzy scoring, recent files
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 function fuzzyScore(needle, haystack) {
   if (!needle) return 1;
@@ -23,19 +24,34 @@ function hlMatch(text, query) {
   return text.replace(new RegExp(`(${escaped})`, "gi"), "<mark>$1</mark>");
 }
 
+const CMD_ICONS = {
+  "new-note":         "file",
+  "new-canvas":       "canvas",
+  "new-folder":       "folder",
+  "open-graph":       "graph",
+  "open-database":    "database",
+  "open-editor":      "noteEdit",
+  "open-canvas-view": "canvas",
+  "toggle-sidebar":   "menu",
+  "toggle-backlinks": "link",
+  "search":           "magnify",
+  "rebuild-index":    "refresh",
+  "close-tab":        "close",
+};
+
 const COMMANDS = [
-  { id: "new-note",         icon: "📄", label: "New Note",             shortcut: "" },
-  { id: "new-canvas",       icon: "🔲", label: "New Canvas",           shortcut: "" },
-  { id: "new-folder",       icon: "📁", label: "New Folder",           shortcut: "" },
-  { id: "open-graph",       icon: "⬡",  label: "Open Graph View",      shortcut: "" },
-  { id: "open-database",    icon: "⊞",  label: "Open Database View",   shortcut: "" },
-  { id: "open-editor",      icon: "📝", label: "Open Editor View",     shortcut: "" },
-  { id: "open-canvas-view", icon: "🔲", label: "Open Canvas View",     shortcut: "" },
-  { id: "toggle-sidebar",   icon: "≡",  label: "Toggle Sidebar",       shortcut: "Ctrl+\\" },
-  { id: "toggle-backlinks", icon: "🔗", label: "Toggle Backlinks Panel",shortcut: "" },
-  { id: "search",           icon: "🔍", label: "Search Notes",          shortcut: "Ctrl+K" },
-  { id: "rebuild-index",    icon: "🔄", label: "Rebuild Link Index",    shortcut: "" },
-  { id: "close-tab",        icon: "✕",  label: "Close Current Tab",     shortcut: "Ctrl+W" },
+  { id: "new-note",         label: "New Note",              shortcut: "" },
+  { id: "new-canvas",       label: "New Canvas",            shortcut: "" },
+  { id: "new-folder",       label: "New Folder",            shortcut: "" },
+  { id: "open-graph",       label: "Open Graph View",       shortcut: "" },
+  { id: "open-database",    label: "Open Database View",    shortcut: "" },
+  { id: "open-editor",      label: "Open Editor View",      shortcut: "" },
+  { id: "open-canvas-view", label: "Open Canvas View",      shortcut: "" },
+  { id: "toggle-sidebar",   label: "Toggle Sidebar",        shortcut: "Ctrl+\\" },
+  { id: "toggle-backlinks", label: "Toggle Backlinks Panel", shortcut: "" },
+  { id: "search",           label: "Search Notes",          shortcut: "Ctrl+K" },
+  { id: "rebuild-index",    label: "Rebuild Link Index",    shortcut: "" },
+  { id: "close-tab",        label: "Close Current Tab",     shortcut: "Ctrl+W" },
 ];
 
 export class PkmCommandPalette extends LitElement {
@@ -138,7 +154,7 @@ export class PkmCommandPalette extends LitElement {
       .sort((a, b) => b.score - a.score);
 
     const recents = q ? [] : (this.recentFiles || []).slice(0, 6).map((p) => ({
-      id: `recent:${p}`, icon: "🕒",
+      id: `recent:${p}`,
       label: p.split("/").pop().replace(/\.md$/, ""),
       path: p, _recent: true, score: 1,
     }));
@@ -184,7 +200,7 @@ export class PkmCommandPalette extends LitElement {
       <div class="overlay" @click=${this._onOverlayClick}>
         <div class="modal">
           <div class="input-row">
-            <span class="cmd-icon">⌘</span>
+            <span class="cmd-icon">${icon("lightning", 18)}</span>
             <input type="text" placeholder="Type a command…"
               .value=${this._query}
               @input=${(e) => { this._query = e.target.value; this._sel = 0; }}
@@ -199,7 +215,7 @@ export class PkmCommandPalette extends LitElement {
               <div class="item ${i === this._sel ? "sel" : ""}"
                 @click=${() => this._run(item)}
                 @mousemove=${() => { this._sel = i; }}>
-                <span class="icon">${item.icon}</span>
+                <span class="icon">${icon("file", 16)}</span>
                 <span class="label">${item.label}</span>
               </div>
             `)}
@@ -211,7 +227,7 @@ export class PkmCommandPalette extends LitElement {
                 <div class="item ${idx === this._sel ? "sel" : ""}"
                   @click=${() => this._run(item)}
                   @mousemove=${() => { this._sel = idx; }}>
-                  <span class="icon">${item.icon}</span>
+                  <span class="icon">${icon(CMD_ICONS[item.id] || "lightning", 16)}</span>
                   <span class="label" .innerHTML=${hlMatch(item.label, q)}></span>
                   ${item.shortcut ? html`<span class="kbd">${item.shortcut}</span>` : ""}
                 </div>

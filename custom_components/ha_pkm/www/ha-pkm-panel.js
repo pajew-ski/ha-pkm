@@ -6,6 +6,7 @@
  */
 
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "./icons.js";
 
 // Components
 import "./components/tab-bar.js";
@@ -76,6 +77,7 @@ class HaPkmPanel extends LitElement {
       --pkm-backlinks-width: 240px;
       --pkm-tab-height: 36px;
       --pkm-toolbar-height: 48px;
+      --pkm-bottom-nav-height: 56px;
       --pkm-radius: 6px;
       --pkm-radius-sm: 3px;
       --pkm-shadow: 0 2px 8px rgba(0,0,0,0.3);
@@ -97,6 +99,9 @@ class HaPkmPanel extends LitElement {
     *::-webkit-scrollbar { width: 6px; height: 6px; }
     *::-webkit-scrollbar-track { background: transparent; }
     *::-webkit-scrollbar-thumb { background: var(--pkm-border); border-radius: 3px; }
+
+    /* Focus rings */
+    button:focus-visible { outline: 2px solid var(--pkm-accent); outline-offset: 2px; }
 
     .pkm-layout {
       display: flex;
@@ -147,6 +152,7 @@ class HaPkmPanel extends LitElement {
       font-size: 13px;
       font-family: inherit;
       transition: background var(--pkm-transition), color var(--pkm-transition);
+      white-space: nowrap;
     }
     .view-btn:hover { background: var(--pkm-surface-2); color: var(--pkm-text); }
     .view-btn.active {
@@ -160,8 +166,10 @@ class HaPkmPanel extends LitElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 32px;
-      height: 32px;
+      min-width: 36px;
+      min-height: 36px;
+      width: 36px;
+      height: 36px;
       border: none;
       background: transparent;
       color: var(--pkm-text-muted);
@@ -169,16 +177,29 @@ class HaPkmPanel extends LitElement {
       cursor: pointer;
       transition: background var(--pkm-transition), color var(--pkm-transition);
       padding: 0;
-      font-size: 16px;
+      -webkit-tap-highlight-color: transparent;
     }
-    .pkm-icon-btn:hover { background: var(--pkm-surface-2); color: var(--pkm-text); }
+    .pkm-icon-btn:hover  { background: var(--pkm-surface-2); color: var(--pkm-text); }
+    .pkm-icon-btn.active { color: var(--pkm-accent); }
 
     /* ── Main area ───────────────────────────── */
     .pkm-main {
       display: flex;
       flex: 1;
       overflow: hidden;
+      position: relative;
     }
+
+    /* ── Sidebar backdrop (mobile overlay) ───── */
+    .sidebar-backdrop {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 90;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .sidebar-backdrop.visible { display: block; }
 
     /* ── Sidebars ────────────────────────────── */
     .pkm-sidebar-left {
@@ -189,8 +210,10 @@ class HaPkmPanel extends LitElement {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transition: width var(--pkm-transition), min-width var(--pkm-transition);
+      transition: width var(--pkm-transition), min-width var(--pkm-transition),
+                  transform var(--pkm-transition);
       flex-shrink: 0;
+      z-index: 100;
     }
     .pkm-sidebar-left.collapsed { width: 0; min-width: 0; }
 
@@ -202,8 +225,10 @@ class HaPkmPanel extends LitElement {
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      transition: width var(--pkm-transition), min-width var(--pkm-transition);
+      transition: width var(--pkm-transition), min-width var(--pkm-transition),
+                  transform var(--pkm-transition);
       flex-shrink: 0;
+      z-index: 100;
     }
     .pkm-sidebar-right.collapsed { width: 0; min-width: 0; }
 
@@ -233,6 +258,64 @@ class HaPkmPanel extends LitElement {
       overflow: hidden;
     }
 
+    /* ── Bottom navigation (mobile) ─────────── */
+    .pkm-bottom-nav {
+      display: none;
+      align-items: center;
+      justify-content: space-around;
+      height: var(--pkm-bottom-nav-height);
+      background: var(--pkm-surface);
+      border-top: 1px solid var(--pkm-border);
+      flex-shrink: 0;
+      z-index: 10;
+      padding-bottom: env(safe-area-inset-bottom, 0);
+    }
+
+    .bottom-nav-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      flex: 1;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--pkm-text-muted);
+      cursor: pointer;
+      font-size: 10px;
+      font-family: inherit;
+      transition: color var(--pkm-transition);
+      padding: 8px 4px;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .bottom-nav-btn.active { color: var(--pkm-accent); }
+    .bottom-nav-btn:hover  { color: var(--pkm-text); }
+
+    /* ── Mobile layout (narrow prop or small screen) */
+    :host([narrow]) .view-btn,
+    :host([narrow]) .toolbar-sep { display: none; }
+
+    :host([narrow]) .pkm-bottom-nav { display: flex; }
+
+    :host([narrow]) .pkm-sidebar-left,
+    :host([narrow]) .pkm-sidebar-right {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      min-width: var(--pkm-sidebar-width);
+      width: var(--pkm-sidebar-width);
+    }
+    :host([narrow]) .pkm-sidebar-left  { left: 0;  transform: translateX(-100%); }
+    :host([narrow]) .pkm-sidebar-right { right: 0; transform: translateX(100%); }
+
+    :host([narrow]) .pkm-sidebar-left.open  { transform: translateX(0); }
+    :host([narrow]) .pkm-sidebar-right.open { transform: translateX(0); }
+
+    :host([narrow]) .pkm-icon-btn { min-width: 44px; min-height: 44px; width: 44px; height: 44px; }
+
+    :host([narrow]) .toast-container { bottom: calc(var(--pkm-bottom-nav-height) + 12px); right: 12px; }
+
     /* ── Toasts ──────────────────────────────── */
     .toast-container {
       position: fixed;
@@ -243,6 +326,7 @@ class HaPkmPanel extends LitElement {
       gap: 8px;
       z-index: 2000;
       pointer-events: none;
+      max-width: min(360px, calc(100vw - 24px));
     }
     .toast {
       padding: 10px 16px;
@@ -266,6 +350,7 @@ class HaPkmPanel extends LitElement {
       font-weight: 600;
       margin-left: 8px;
       text-decoration: underline;
+      white-space: nowrap;
     }
 
     @keyframes toast-in {
@@ -656,7 +741,15 @@ class HaPkmPanel extends LitElement {
   }
 
   render() {
-    const isNarrow = this.narrow;
+    const narrow = this.narrow;
+    // On mobile: sidebars are overlays with open/collapsed classes
+    const leftClass  = narrow
+      ? (this._sidebarOpen  ? "pkm-sidebar-left open"   : "pkm-sidebar-left")
+      : (this._sidebarOpen  ? "pkm-sidebar-left"         : "pkm-sidebar-left collapsed");
+    const rightClass = narrow
+      ? (this._backlinkOpen ? "pkm-sidebar-right open"  : "pkm-sidebar-right")
+      : (this._backlinkOpen ? "pkm-sidebar-right"        : "pkm-sidebar-right collapsed");
+    const backdropVisible = narrow && (this._sidebarOpen || this._backlinkOpen);
 
     return html`
       <div class="pkm-layout">
@@ -665,7 +758,7 @@ class HaPkmPanel extends LitElement {
         ${this._offline ? html`
           <div class="offline-banner">
             <div class="spinner"></div>
-            Disconnected from Home Assistant – reconnecting (attempt ${this._reconnecting + 1})…
+            Disconnected – reconnecting (attempt ${this._reconnecting + 1})…
             <span style="cursor:pointer;text-decoration:underline;margin-left:8px"
               @click=${() => this._scheduleReconnect()}>Retry now</span>
           </div>
@@ -673,40 +766,49 @@ class HaPkmPanel extends LitElement {
 
         <!-- Toolbar -->
         <div class="pkm-toolbar">
-          <button class="pkm-icon-btn" title="Toggle sidebar (Ctrl+\\)" @click=${this._toggleSidebar}>≡</button>
+          <button class="pkm-icon-btn" title="Toggle sidebar (Ctrl+\\)" @click=${this._toggleSidebar}>
+            ${icon("menu")}
+          </button>
           <span class="toolbar-brand">PKM</span>
           <div class="toolbar-sep"></div>
 
-          <button class="view-btn ${this._currentView === "editor" ? "active" : ""}" @click=${() => this._setView("editor")}>
-            📝 Editor
+          <!-- View buttons (hidden on mobile — bottom nav takes over) -->
+          <button class="view-btn ${this._currentView === "editor"   ? "active" : ""}" @click=${() => this._setView("editor")}>
+            ${icon("noteEdit", 16)} Editor
           </button>
-          <button class="view-btn ${this._currentView === "canvas" ? "active" : ""}" @click=${() => this._setView("canvas")}>
-            🔲 Canvas
+          <button class="view-btn ${this._currentView === "canvas"   ? "active" : ""}" @click=${() => this._setView("canvas")}>
+            ${icon("canvas", 16)} Canvas
           </button>
           <button class="view-btn ${this._currentView === "database" ? "active" : ""}" @click=${() => this._setView("database")}>
-            ⊞ Database
+            ${icon("database", 16)} Database
           </button>
-          <button class="view-btn ${this._currentView === "graph" ? "active" : ""}" @click=${() => this._setView("graph")}>
-            ⬡ Graph
+          <button class="view-btn ${this._currentView === "graph"    ? "active" : ""}" @click=${() => this._setView("graph")}>
+            ${icon("graph", 16)} Graph
           </button>
 
           <span class="toolbar-spacer"></span>
 
-          <button class="pkm-icon-btn" title="Search (Ctrl+K)" @click=${() => this._openSearch()}>🔍</button>
-          <button class="pkm-icon-btn" title="Commands (Ctrl+P)" @click=${() => this._openCommand()}>⌘</button>
-          <button class="pkm-icon-btn" title="Toggle backlinks panel" @click=${() => { this._backlinkOpen = !this._backlinkOpen; }}>🔗</button>
+          <button class="pkm-icon-btn" title="Search (Ctrl+K)"   @click=${() => this._openSearch()}>${icon("magnify")}</button>
+          <button class="pkm-icon-btn" title="Commands (Ctrl+P)" @click=${() => this._openCommand()}>${icon("lightning")}</button>
+          <button class="pkm-icon-btn ${this._backlinkOpen ? "active" : ""}" title="Toggle backlinks panel"
+            @click=${() => { this._backlinkOpen = !this._backlinkOpen; }}>${icon("link")}</button>
         </div>
 
         <!-- Main -->
         <div class="pkm-main">
 
+          <!-- Backdrop (mobile only) -->
+          <div class="sidebar-backdrop ${backdropVisible ? "visible" : ""}"
+            @click=${() => { this._sidebarOpen = false; this._backlinkOpen = false; }}>
+          </div>
+
           <!-- Left sidebar: File tree -->
-          <div class="pkm-sidebar-left ${(!this._sidebarOpen || isNarrow) ? "collapsed" : ""}">
+          <div class="${leftClass}">
             <pkm-file-tree
               .files=${this._fileTree}
               .activePath=${this._activeTab}
               .dirtyPaths=${new Set(this._tabs.filter((t) => t.isDirty).map((t) => t.path))}
-              @file-open=${(e) => this._openFile(e.detail.path)}
+              @file-open=${(e) => { this._openFile(e.detail.path); if (narrow) this._sidebarOpen = false; }}
               @file-new=${(e) => this._newNote(e.detail.basePath)}
               @folder-new=${(e) => this._newFolder(e.detail.basePath)}
               @file-rename=${(e) => this._renameFile(e.detail.oldPath, e.detail.newPath)}
@@ -730,16 +832,33 @@ class HaPkmPanel extends LitElement {
           </div>
 
           <!-- Right sidebar: Backlinks -->
-          <div class="pkm-sidebar-right ${(!this._backlinkOpen || isNarrow) ? "collapsed" : ""}">
+          <div class="${rightClass}">
             <pkm-backlinks-panel
               .hass=${this.hass}
               .activePath=${this._activeTab}
-              @file-open=${(e) => this._openFile(e.detail.path)}
+              @file-open=${(e) => { this._openFile(e.detail.path); if (narrow) this._backlinkOpen = false; }}
               @tag-search=${(e) => this._openSearch(`#tag:${e.detail.tag}`)}
             ></pkm-backlinks-panel>
           </div>
 
         </div>
+
+        <!-- Bottom navigation (mobile only) -->
+        <div class="pkm-bottom-nav">
+          <button class="bottom-nav-btn ${this._currentView === "editor"   ? "active" : ""}" @click=${() => this._setView("editor")}>
+            ${icon("noteEdit", 22)} Editor
+          </button>
+          <button class="bottom-nav-btn ${this._currentView === "canvas"   ? "active" : ""}" @click=${() => this._setView("canvas")}>
+            ${icon("canvas", 22)} Canvas
+          </button>
+          <button class="bottom-nav-btn ${this._currentView === "database" ? "active" : ""}" @click=${() => this._setView("database")}>
+            ${icon("database", 22)} Database
+          </button>
+          <button class="bottom-nav-btn ${this._currentView === "graph"    ? "active" : ""}" @click=${() => this._setView("graph")}>
+            ${icon("graph", 22)} Graph
+          </button>
+        </div>
+
       </div>
 
       <!-- Search modal -->

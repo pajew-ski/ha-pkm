@@ -7,6 +7,7 @@
  *   (default)     → fuzzy filename + fulltext WS search
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 const FTS_DEBOUNCE = 300;   // ms before firing fulltext WS search
 
@@ -337,7 +338,7 @@ export class PkmSearchModal extends LitElement {
           <div class="result-item ${i === this._sel ? "sel" : ""}"
             @click=${() => this._select(item)}
             @mousemove=${() => { this._sel = i; }}>
-            <div class="r-title" .innerHTML=${"📄 " + (item.titleHl || item.title || item.path.split("/").pop())}></div>
+            <div class="r-title"><span style="display:inline-flex;vertical-align:middle;margin-right:4px">${icon("file", 14)}</span><span .innerHTML=${item.titleHl || item.title || item.path.split("/").pop()}></span></div>
             <div class="r-path">${item.path}</div>
             ${item.excerpt
               ? html`<div class="r-excerpt" .innerHTML=${item.excerpt}></div>`
@@ -354,7 +355,7 @@ export class PkmSearchModal extends LitElement {
       <div class="overlay" @click=${this._onOverlayClick}>
         <div class="modal">
           <div class="input-row">
-            <span class="search-icon">🔍</span>
+            <span class="search-icon">${icon("magnify", 18)}</span>
             ${this._renderModePrefix()}
             <input
               type="text"

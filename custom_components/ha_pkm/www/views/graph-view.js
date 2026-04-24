@@ -11,6 +11,7 @@
  * - Label visibility: always above zoom 1.5, on hover otherwise
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 const D3_CDN = "https://cdn.jsdelivr.net/npm/d3@7/+esm";
 
@@ -392,7 +393,7 @@ export class PkmGraphView extends LitElement {
 
     return html`
       <div class="toolbar">
-        <span class="toolbar-title">⬡ Graph</span>
+        <span class="toolbar-title">${icon("graph", 16)} Graph</span>
         <input class="search-input" type="text" placeholder="Filter nodes…"
           .value=${this._query}
           @input=${(e) => { this._query = e.target.value; this._filterGraph(); }}
@@ -401,9 +402,9 @@ export class PkmGraphView extends LitElement {
           <option value="folder">Colour: Folder</option>
           <option value="none">Colour: Uniform</option>
         </select>
-        <button class="pkm-icon-btn" title="Refresh" @click=${() => this._loadGraph()}>🔄</button>
+        <button class="pkm-icon-btn" title="Refresh" @click=${() => this._loadGraph()}>${icon("refresh", 18)}</button>
         <button class="pkm-icon-btn ${this._filterOpen ? "active" : ""}" title="Toggle filter panel"
-          @click=${() => { this._filterOpen = !this._filterOpen; }}>☰</button>
+          @click=${() => { this._filterOpen = !this._filterOpen; }}>${icon("tune", 18)}</button>
         <span class="stats">${nodes.length} nodes · ${edges.length} edges</span>
       </div>
 
