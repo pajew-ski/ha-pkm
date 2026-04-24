@@ -16,6 +16,7 @@ sys.modules.setdefault("homeassistant", _make_module("homeassistant"))
 sys.modules.setdefault("homeassistant.core", _make_module("homeassistant.core", HomeAssistant=MagicMock))
 sys.modules.setdefault("homeassistant.config_entries", _make_module("homeassistant.config_entries", ConfigEntry=MagicMock))
 sys.modules.setdefault("homeassistant.components", _make_module("homeassistant.components"))
+sys.modules.setdefault("homeassistant.components.http", _make_module("homeassistant.components.http", StaticPathConfig=MagicMock))
 sys.modules.setdefault("homeassistant.components.panel_custom", _make_module("homeassistant.components.panel_custom", async_register_panel=MagicMock()))
 sys.modules.setdefault("homeassistant.components.websocket_api", _make_module(
     "homeassistant.components.websocket_api",
