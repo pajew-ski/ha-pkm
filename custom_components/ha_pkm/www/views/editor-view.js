@@ -121,9 +121,19 @@ export class PkmEditorView extends LitElement {
     .editor-area {
       flex: 1; overflow: hidden;
       position: relative;           /* anchor for absolute overlays */
+      display: flex; flex-direction: column;
     }
+    /* #cm-host is a normal flex item so it gets a definite height from flexbox.
+       position:absolute would lose the flexbox-assigned height on some layouts. */
     #cm-host {
-      position: absolute; inset: 0; overflow: hidden;
+      flex: 1; overflow: hidden; min-height: 0;
+    }
+
+    /* Loading overlay – covers editor without removing it from DOM */
+    .loading-overlay {
+      position: absolute; inset: 0; z-index: 3;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--pkm-bg); color: var(--pkm-text-muted); font-size: 14px;
     }
 
     /* Preview overlay */
@@ -186,11 +196,6 @@ export class PkmEditorView extends LitElement {
     }
     .link-tooltip .tooltip-unresolved { color: var(--pkm-link-unresolved); font-style: italic; }
 
-    .loading-overlay {
-      position: absolute; inset: 0; z-index: 3;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--pkm-bg); color: var(--pkm-text-muted); font-size: 14px;
-    }
     .empty-state {
       display: flex; flex-direction: column; align-items: center;
       justify-content: center; height: 100%; gap: 12px; color: var(--pkm-text-muted);
@@ -222,11 +227,19 @@ export class PkmEditorView extends LitElement {
         (changed.has("hass") && this.hass && !this._currentPath && this.path)) {
       this._loadFile();
     }
-    // Lazily init CodeMirror whenever #cm-host enters the DOM
-    // (first render may not have had it if path was null or .canvas)
-    if (!this._editor) {
+    // Re-init whenever #cm-host is in DOM but editor is missing or detached.
+    // Covers: first render without path, canvas→editor switch, all-tabs-closed→reopen.
+    if (!this._editor || !this._editor.view.dom.isConnected) {
+      this._editor?.destroy();
+      this._editor = null;
       this._initEditor();
     }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._editor?.destroy();
+    this._editor = null;
   }
 
   async _loadFile() {
