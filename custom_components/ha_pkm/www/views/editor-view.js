@@ -222,6 +222,11 @@ export class PkmEditorView extends LitElement {
         (changed.has("hass") && this.hass && !this._currentPath && this.path)) {
       this._loadFile();
     }
+    // Lazily init CodeMirror whenever #cm-host enters the DOM
+    // (first render may not have had it if path was null or .canvas)
+    if (!this._editor) {
+      this._initEditor();
+    }
   }
 
   async _loadFile() {
