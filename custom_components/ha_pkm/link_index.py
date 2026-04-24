@@ -53,8 +53,14 @@ class LinkIndex:
                 self._stem_map[stem].append(path)
 
     def _parse_file(self, path: str, content: str) -> tuple[list[str], list[str]]:
-        links = [m.group(1).strip() for m in WIKILINK_RE.finditer(content)]
-        tags = [f"#{m.group(1)}" for m in TAG_RE.finditer(content)]
+        links = list(dict.fromkeys(m.group(1).strip() for m in WIKILINK_RE.finditer(content)))
+        seen_tags: set[str] = set()
+        tags: list[str] = []
+        for m in TAG_RE.finditer(content):
+            t = f"#{m.group(1)}"
+            if t not in seen_tags:
+                seen_tags.add(t)
+                tags.append(t)
         fm_match = FRONTMATTER_RE.match(content)
         if fm_match:
             try:
@@ -74,10 +80,13 @@ class LinkIndex:
     def _remove_file_from_index(self, path: str) -> None:
         links = self._outgoing.pop(path, [])
         for link in links:
-            if path in self._backlinks.get(link, []):
-                self._backlinks[link].remove(path)
-                if not self._backlinks[link]:
-                    del self._backlinks[link]
+            # Backlinks are keyed by resolved path, not raw wikilink text
+            resolved = self.resolve_link(link)
+            bl_key = resolved if resolved else link
+            if path in self._backlinks.get(bl_key, []):
+                self._backlinks[bl_key].remove(path)
+                if not self._backlinks[bl_key]:
+                    del self._backlinks[bl_key]
             if path in self._unresolved.get(link, []):
                 self._unresolved[link].remove(path)
                 if not self._unresolved[link]:

@@ -198,17 +198,21 @@ export class PkmCanvasView extends LitElement {
     this._spaceDown = false;
     this._ctxCloseBound = this._closeCtx.bind(this);
     this._keydownBound  = this._onKeydown.bind(this);
+    this._keyupBound    = (e) => { if (e.code === "Space") this._spaceDown = false; };
   }
 
   connectedCallback() {
     super.connectedCallback();
     document.addEventListener("click",   this._ctxCloseBound);
     document.addEventListener("keydown", this._keydownBound);
+    document.addEventListener("keyup",   this._keyupBound);
   }
+
   disconnectedCallback() {
     super.disconnectedCallback();
     document.removeEventListener("click",   this._ctxCloseBound);
     document.removeEventListener("keydown", this._keydownBound);
+    document.removeEventListener("keyup",   this._keyupBound);
   }
 
   updated(changed) {
@@ -284,20 +288,6 @@ export class PkmCanvasView extends LitElement {
   _onKeydown(e) {
     if (e.code === "Space")  this._spaceDown = true;
     if (e.key  === "Delete" || e.key === "Backspace") this._deleteSelected();
-  }
-  // Space keyup
-  connectedCallback() {
-    super.connectedCallback();
-    document.addEventListener("click",   this._ctxCloseBound);
-    document.addEventListener("keydown", this._keydownBound);
-    this._keyupBound = (e) => { if (e.code === "Space") this._spaceDown = false; };
-    document.addEventListener("keyup", this._keyupBound);
-  }
-  disconnectedCallback() {
-    super.disconnectedCallback();
-    document.removeEventListener("click",   this._ctxCloseBound);
-    document.removeEventListener("keydown", this._keydownBound);
-    document.removeEventListener("keyup",   this._keyupBound);
   }
 
   // ── Node interactions ────────────────────────────────────────────────────

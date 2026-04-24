@@ -3,7 +3,9 @@
  */
 
 import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "https://cdn.jsdelivr.net/npm/@codemirror/view@6/+esm";
-import { EditorState } from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/+esm";
+import { EditorState, StateEffect } from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/+esm";
+
+const _forceUpdateEffect = StateEffect.define();
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://cdn.jsdelivr.net/npm/@codemirror/commands@6/+esm";
 import { markdown, markdownLanguage } from "https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/+esm";
 import { oneDark } from "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/+esm";
@@ -129,8 +131,7 @@ export class PkmEditor {
   /** Call whenever the resolved-link set changes so wikilinks re-colour. */
   setResolvedLinks(links) {
     this._resolvedLinks = links instanceof Set ? links : new Set(links);
-    // Force a viewport re-render so decoration builder runs again
-    this.view.dispatch({});
+    this.view.dispatch({ effects: _forceUpdateEffect.of(null) });
   }
 
   _scheduleAutosave() {

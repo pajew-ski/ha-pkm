@@ -16,7 +16,9 @@ class FileManager:
     def _safe_resolve(self, relative_path: str) -> Path:
         """Resolve a relative path under vault_path, rejecting traversal attempts."""
         resolved = (self.vault_path / relative_path).resolve()
-        if not str(resolved).startswith(str(self.vault_path)):
+        # is_relative_to() (Python 3.9+) avoids the prefix-collision bug of
+        # str.startswith() when vault names share a common prefix.
+        if not resolved.is_relative_to(self.vault_path):
             raise PermissionError(f"Path traversal denied: {relative_path}")
         return resolved
 

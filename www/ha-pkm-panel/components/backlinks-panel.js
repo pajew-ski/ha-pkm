@@ -184,17 +184,27 @@ export class PkmBacklinksPanel extends LitElement {
           </div>
         `) : ""}
 
-        ${this._renderSection("tags", "#", "Tags", this._tags, () => "")}
-        ${this._sections.tags && this._tags.length ? html`
-          <div class="tags-wrap" style="padding-left:12px;">
-            ${this._tags.map((tag) => html`
-              <span class="tag-pill"
-                @click=${() => this.dispatchEvent(new CustomEvent("tag-search", { detail: { tag }, bubbles: true, composed: true }))}>
-                ${tag}
-              </span>
-            `)}
+        <div class="section">
+          <div class="section-header" @click=${() => this._toggleSection("tags")}>
+            <span class="section-arrow ${this._sections.tags ? "open" : ""}">▶</span>
+            # Tags
+            <span class="section-count">${this._tags.length}</span>
           </div>
-        ` : ""}
+          ${this._sections.tags ? html`
+            <div class="section-body">
+              ${this._tags.length === 0 ? html`<div class="empty-msg">None</div>` : html`
+                <div class="tags-wrap">
+                  ${this._tags.map((tag) => html`
+                    <span class="tag-pill"
+                      @click=${() => this.dispatchEvent(new CustomEvent("tag-search", { detail: { tag }, bubbles: true, composed: true }))}>
+                      ${tag}
+                    </span>
+                  `)}
+                </div>
+              `}
+            </div>
+          ` : ""}
+        </div>
       </div>
     `;
   }

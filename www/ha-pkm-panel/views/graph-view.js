@@ -324,8 +324,8 @@ export class PkmGraphView extends LitElement {
   _onNodeOut(link, node, label) {
     node.attr("opacity", 1);
     link.attr("opacity", 0.5);
-    const curZoom = this._zoom ? this._zoom.scale?.() : 0;
-    label.style("display", "none"); // re-apply zoom rule on next zoom event
+    // Labels hidden after hover; zoom listener will re-show them above threshold
+    label.style("display", "none");
   }
 
   /** Weak force that pulls nodes of the same folder toward their centroid. */

@@ -78,7 +78,7 @@ export function wikilinkExtension(options = {}) {
         this.decorations = buildDecorations(view, getResolved);
       }
       update(update) {
-        if (update.docChanged || update.viewportChanged) {
+        if (update.docChanged || update.viewportChanged || update.transactions.some(tr => tr.effects.length > 0)) {
           this.decorations = buildDecorations(update.view, getResolved);
         }
       }
