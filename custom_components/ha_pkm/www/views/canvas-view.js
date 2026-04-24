@@ -356,15 +356,17 @@ export class PkmCanvasView extends LitElement {
   // ── Touch support ────────────────────────────────────────────────────────
 
   _onAreaTouchStart(e) {
+    const t0 = e.touches[0];
+    // Reserve the left 30 px for the HA sidebar swipe-from-edge gesture.
+    // If HA's gesture handler checks defaultPrevented it would be blocked otherwise.
+    if (t0.clientX < 30) return;
+
     if (e.touches.length === 1) {
-      // Single finger = pan
       e.preventDefault();
-      const t = e.touches[0];
-      const sx = t.clientX - this._vp.x, sy = t.clientY - this._vp.y;
+      const sx = t0.clientX - this._vp.x, sy = t0.clientY - this._vp.y;
       this._touchPan = { sx, sy };
       this._touchPinch = null;
     } else if (e.touches.length === 2) {
-      // Two fingers = pinch-zoom
       e.preventDefault();
       const [a, b] = [e.touches[0], e.touches[1]];
       this._touchPinch = {
@@ -621,6 +623,14 @@ export class PkmCanvasView extends LitElement {
   }
 
   render() {
+    if (this.path && !this.path.endsWith(".canvas")) {
+      return html`
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--pkm-text-muted)">
+          <span style="opacity:0.25">${icon("noteEdit", 48)}</span>
+          <span>Note file – switch to Editor view to edit it</span>
+        </div>`;
+    }
+
     const vp = this._vp;
     const transform = `translate(${vp.x}px,${vp.y}px) scale(${vp.zoom})`;
 

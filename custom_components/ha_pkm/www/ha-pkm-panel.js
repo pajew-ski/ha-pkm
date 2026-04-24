@@ -40,7 +40,7 @@ class HaPkmPanel extends LitElement {
   static get properties() {
     return {
       hass:   { type: Object },
-      narrow: { type: Boolean },
+      narrow: { type: Boolean, reflect: true },
       route:  { type: Object },
       panel:  { type: Object },
       // Internal state
@@ -294,9 +294,16 @@ class HaPkmPanel extends LitElement {
 
     /* ── Mobile layout (narrow prop or small screen) */
     :host([narrow]) .view-btn,
-    :host([narrow]) .toolbar-sep { display: none; }
+    :host([narrow]) .toolbar-sep,
+    :host([narrow]) .toolbar-brand { display: none; }
 
     :host([narrow]) .pkm-bottom-nav { display: flex; }
+
+    :host([narrow]) .pkm-toolbar {
+      /* extra tap-target height on mobile */
+      height: 52px;
+      padding: 0 4px;
+    }
 
     :host([narrow]) .pkm-sidebar-left,
     :host([narrow]) .pkm-sidebar-right {
@@ -401,6 +408,19 @@ class HaPkmPanel extends LitElement {
     super.connectedCallback();
     this._keydownBound = this._onKeydown.bind(this);
     window.addEventListener("keydown", this._keydownBound, true);
+
+    // Detect viewport width changes (fold/unfold on foldable devices, window resize)
+    this._resizeObserver = new ResizeObserver(() => {
+      const isNarrow = this.clientWidth > 0 && this.clientWidth < 600;
+      if (isNarrow !== this.narrow) {
+        this.narrow = isNarrow;
+        if (isNarrow) {
+          this._sidebarOpen  = false;
+          this._backlinkOpen = false;
+        }
+      }
+    });
+    this._resizeObserver.observe(this);
   }
 
   disconnectedCallback() {
@@ -408,6 +428,7 @@ class HaPkmPanel extends LitElement {
     window.removeEventListener("keydown", this._keydownBound, true);
     if (this._eventUnsub) this._eventUnsub();
     clearTimeout(this._reconnectTimer);
+    this._resizeObserver?.disconnect();
   }
 
   updated(changed) {
@@ -415,7 +436,8 @@ class HaPkmPanel extends LitElement {
       this._initIfNeeded();
     }
     if (changed.has("narrow") && this.narrow) {
-      this._sidebarOpen = false;
+      // Collapsed state when switching to narrow (fold / small viewport)
+      this._sidebarOpen  = false;
       this._backlinkOpen = false;
     }
   }

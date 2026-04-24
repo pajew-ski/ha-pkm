@@ -117,40 +117,48 @@ export class PkmEditorView extends LitElement {
       color: var(--pkm-text-muted); cursor: pointer; font-size: 11px; padding: 2px 6px;
     }
 
-    /* Editor area */
-    .editor-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
-    #cm-host     { flex: 1; overflow: hidden; }
-
-    /* Preview */
-    .preview-area {
-      flex: 1; overflow-y: auto;
-      padding: 24px 32px;
-      max-width: 860px; margin: 0 auto; width: 100%;
+    /* Editor area – #cm-host is ALWAYS in DOM; overlays sit on top */
+    .editor-area {
+      flex: 1; overflow: hidden;
+      position: relative;           /* anchor for absolute overlays */
     }
-    .preview-area h1,.preview-area h2,.preview-area h3,
-    .preview-area h4,.preview-area h5,.preview-area h6 {
+    #cm-host {
+      position: absolute; inset: 0; overflow: hidden;
+    }
+
+    /* Preview overlay */
+    .preview-area {
+      position: absolute; inset: 0; overflow-y: auto;
+      background: var(--pkm-bg); z-index: 2;
+      padding: 24px;
+    }
+    .preview-inner {
+      max-width: 860px; margin: 0 auto;
+    }
+    .preview-inner h1,.preview-inner h2,.preview-inner h3,
+    .preview-inner h4,.preview-inner h5,.preview-inner h6 {
       color: var(--pkm-text); margin-top: 1.4em; margin-bottom: 0.4em;
     }
-    .preview-area p  { margin: 0.6em 0; line-height: 1.7; }
-    .preview-area a  { color: var(--pkm-link); }
-    .preview-area code {
+    .preview-inner p  { margin: 0.6em 0; line-height: 1.7; }
+    .preview-inner a  { color: var(--pkm-link); }
+    .preview-inner code {
       background: var(--pkm-surface-2); padding: 1px 5px;
       border-radius: 3px; font-family: var(--pkm-font-mono); font-size: 0.9em;
     }
-    .preview-area pre {
+    .preview-inner pre {
       background: var(--pkm-surface-2); border: 1px solid var(--pkm-border);
       border-radius: 6px; padding: 12px 16px; overflow-x: auto;
     }
-    .preview-area pre code { background: none; padding: 0; }
-    .preview-area blockquote {
+    .preview-inner pre code { background: none; padding: 0; }
+    .preview-inner blockquote {
       border-left: 3px solid var(--pkm-accent); margin: 0;
       padding: 4px 16px; color: var(--pkm-text-muted);
     }
-    .preview-area table { border-collapse: collapse; width: 100%; }
-    .preview-area th, .preview-area td {
+    .preview-inner table { border-collapse: collapse; width: 100%; }
+    .preview-inner th, .preview-inner td {
       border: 1px solid var(--pkm-border); padding: 6px 12px; text-align: left;
     }
-    .preview-area th { background: var(--pkm-surface-2); }
+    .preview-inner th { background: var(--pkm-surface-2); }
     [data-wikilink-target] {
       color: var(--pkm-link); cursor: pointer;
       border-bottom: 1px solid color-mix(in srgb, var(--pkm-link) 50%, transparent);
@@ -179,8 +187,9 @@ export class PkmEditorView extends LitElement {
     .link-tooltip .tooltip-unresolved { color: var(--pkm-link-unresolved); font-style: italic; }
 
     .loading-overlay {
+      position: absolute; inset: 0; z-index: 3;
       display: flex; align-items: center; justify-content: center;
-      height: 100%; color: var(--pkm-text-muted); font-size: 14px;
+      background: var(--pkm-bg); color: var(--pkm-text-muted); font-size: 14px;
     }
     .empty-state {
       display: flex; flex-direction: column; align-items: center;
@@ -297,6 +306,10 @@ export class PkmEditorView extends LitElement {
         `<span data-wikilink-target="${target}">${display || target}</span>`
       );
       this._prevHtml = renderMarkdown(withLinks);
+    } else {
+      // Let CodeMirror re-measure after the overlay disappears
+      await this.updateComplete;
+      this._editor?.view?.requestMeasure?.();
     }
   }
 
@@ -399,10 +412,22 @@ export class PkmEditorView extends LitElement {
       `;
     }
 
+    if (this.path.endsWith(".canvas")) {
+      return html`
+        <div class="empty-state">
+          <span class="icon" style="opacity:0.25;color:var(--pkm-text-muted)">${icon("canvas", 48)}</span>
+          <p>Canvas file</p>
+          <small>Switch to Canvas view to edit this file</small>
+        </div>
+      `;
+    }
+
     return html`
       <div class="toolbar">
-        <button class="mode-btn ${!this._isPreview ? "active" : ""}" @click=${() => { if (this._isPreview) this._togglePreview(); }}>Edit</button>
-        <button class="mode-btn ${this._isPreview  ? "active" : ""}" @click=${() => { if (!this._isPreview) this._togglePreview(); }}>Preview</button>
+        <button class="mode-btn ${!this._isPreview ? "active" : ""}"
+          @click=${() => { if (this._isPreview) this._togglePreview(); }}>Edit</button>
+        <button class="mode-btn ${this._isPreview  ? "active" : ""}"
+          @click=${() => { if (!this._isPreview) this._togglePreview(); }}>Preview</button>
         <span class="toolbar-path">${this.path}</span>
         ${this._saving
           ? html`<span class="saving">Saving…</span>`
@@ -420,12 +445,14 @@ export class PkmEditorView extends LitElement {
       `}
 
       <div class="editor-area">
-        ${this._loading
-          ? html`<div class="loading-overlay">Loading…</div>`
-          : this._isPreview
-          ? html`<div class="preview-area" @click=${this._onPreviewClick.bind(this)} .innerHTML=${this._prevHtml}></div>`
-          : html`<div id="cm-host" style="height:100%;"></div>`
-        }
+        <!-- #cm-host stays in DOM at all times so CodeMirror is never re-mounted -->
+        <div id="cm-host"></div>
+        ${this._loading ? html`<div class="loading-overlay">Loading…</div>` : ""}
+        ${this._isPreview ? html`
+          <div class="preview-area" @click=${this._onPreviewClick.bind(this)}>
+            <div class="preview-inner" .innerHTML=${this._prevHtml}></div>
+          </div>
+        ` : ""}
       </div>
 
       ${this._renderTooltip()}

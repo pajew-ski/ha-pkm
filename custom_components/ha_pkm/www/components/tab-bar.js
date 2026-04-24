@@ -53,13 +53,14 @@ export class PkmTabBar extends LitElement {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      width: 18px;
-      height: 18px;
+      width: 22px;
+      height: 22px;
       border-radius: 3px;
       opacity: 0.5;
-      font-size: 14px;
+      font-size: 16px;
       line-height: 1;
       flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
     }
     .tab-close:hover { opacity: 1; background: var(--pkm-surface-2); }
 
