@@ -1,0 +1,7 @@
+{
+  "name": "ha-pkm",
+  "render_readme": true,
+  "zip_release": false,
+  "filename": "ha-pkm-panel.js",
+  "content_in_root": false
+}
