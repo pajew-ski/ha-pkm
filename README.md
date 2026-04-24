@@ -1,6 +1,6 @@
 # ha-pkm
 
-A personal knowledge management (PKM) panel for Home Assistant — Obsidian-style, no cloud required.
+A personal knowledge management (PKM) panel for Home Assistant — no cloud required.
 
 ## Features
 
