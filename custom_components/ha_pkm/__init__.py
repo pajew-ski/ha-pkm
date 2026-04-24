@@ -50,10 +50,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.async_add_executor_job(_init_vault_dirs)
 
-    # Register static path for frontend files
-    # Try multiple locations: HACS places custom_components/ and www/ both under config/
+    # Frontend files live inside the component dir so HACS ships them automatically.
+    # Fall back to a manually-placed www/ha-pkm-panel for advanced dev setups.
     www_candidates = [
-        Path(__file__).parent.parent.parent / "www" / "ha-pkm-panel",
+        Path(__file__).parent / "www",
         Path(hass.config.config_dir) / "www" / "ha-pkm-panel",
     ]
     www_path = next((p for p in www_candidates if p.exists()), None)
@@ -66,7 +66,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Register panel
     await async_register_panel(
         hass,
-        component_name=PANEL_COMPONENT,
+        webcomponent_name=PANEL_COMPONENT,
         sidebar_title="PKM",
         sidebar_icon="mdi:note-multiple-outline",
         frontend_url_path=PANEL_URL,
