@@ -429,27 +429,53 @@ class HaPkmPanel extends LitElement {
     const ctrl = e.ctrlKey || e.metaKey;
     if (!ctrl) return;
 
-    if (e.key === "k" || e.key === "K") { e.preventDefault(); this._showSearch = true; return; }
-    if (e.key === "p" || e.key === "P") { e.preventDefault(); this._showCommand = true; return; }
+    if (e.key === "k" || e.key === "K") { e.preventDefault(); this._openSearch(); return; }
+    if (e.key === "p" || e.key === "P") { e.preventDefault(); this._openCommand(); return; }
     if (e.key === "w" || e.key === "W") { e.preventDefault(); if (this._activeTab) this._closeTab(this._activeTab); return; }
     if (e.key === "Tab") { e.preventDefault(); this._nextTab(); return; }
     if (e.key === "\\") { e.preventDefault(); this._toggleSidebar(); return; }
-    if (e.key === "s" || e.key === "S") {
-      // Handled by editor-view internally via CM keymap – no-op here to avoid double handling
-    }
+    // Ctrl+S handled inside CodeMirror keymap; no-op here
   }
 
   // ── Commands ─────────────────────────────────────────────────────────────
 
+  _openSearch(initialQuery = "") {
+    this._showSearch = true;
+    this.updateComplete.then(() => {
+      this.shadowRoot.querySelector("pkm-search-modal")?.open(initialQuery);
+    });
+  }
+
+  _openCommand() {
+    this._showCommand = true;
+    this.updateComplete.then(() => {
+      this.shadowRoot.querySelector("pkm-command-palette")?.open();
+    });
+  }
+
   async _runCommand(id) {
     switch (id) {
-      case "new-note": await this._newNote(""); break;
-      case "new-canvas": await this._newFile("Untitled.canvas"); break;
-      case "new-folder": await this._newFolder(""); break;
-      case "open-graph": this._setView("graph"); break;
-      case "open-database": this._setView("database"); break;
-      case "toggle-sidebar": this._toggleSidebar(); break;
-      case "search": this._showSearch = true; break;
+      case "new-note":         await this._newNote(""); break;
+      case "new-canvas":       await this._newFile("Untitled.canvas"); break;
+      case "new-folder":       await this._newFolder(""); break;
+      case "open-graph":       this._setView("graph"); break;
+      case "open-database":    this._setView("database"); break;
+      case "open-editor":      this._setView("editor"); break;
+      case "open-canvas-view": this._setView("canvas"); break;
+      case "toggle-sidebar":   this._toggleSidebar(); break;
+      case "toggle-backlinks": this._backlinkOpen = !this._backlinkOpen; break;
+      case "search":           this._openSearch(); break;
+      case "close-tab":        if (this._activeTab) this._closeTab(this._activeTab); break;
+      case "rebuild-index":    await this._rebuildIndex(); break;
+    }
+  }
+
+  async _rebuildIndex() {
+    try {
+      await this.hass.callWS({ type: "ha_pkm/list_files" }); // triggers backend rebuild via init
+      this._showToast("Index rebuilt", "info");
+    } catch (e) {
+      this._showToast(`Rebuild failed: ${e.message}`, "error");
     }
   }
 
@@ -530,6 +556,7 @@ class HaPkmPanel extends LitElement {
         return html`<pkm-editor-view
           .hass=${this.hass}
           .path=${this._activeTab}
+          .allPaths=${this._allPaths}
           @file-saved=${(e) => this._setTabDirty(e.detail.path, false)}
           @dirty-change=${(e) => this._setTabDirty(e.detail.path, e.detail.isDirty)}
           @open-link=${(e) => this._resolveLinkAndOpen(e.detail.link)}
@@ -580,8 +607,8 @@ class HaPkmPanel extends LitElement {
 
           <span class="toolbar-spacer"></span>
 
-          <button class="pkm-icon-btn" title="Search (Ctrl+K)" @click=${() => { this._showSearch = true; }}>🔍</button>
-          <button class="pkm-icon-btn" title="Commands (Ctrl+P)" @click=${() => { this._showCommand = true; }}>⌘</button>
+          <button class="pkm-icon-btn" title="Search (Ctrl+K)" @click=${() => this._openSearch()}>🔍</button>
+          <button class="pkm-icon-btn" title="Commands (Ctrl+P)" @click=${() => this._openCommand()}>⌘</button>
           <button class="pkm-icon-btn" title="Toggle backlinks panel" @click=${() => { this._backlinkOpen = !this._backlinkOpen; }}>🔗</button>
         </div>
 
@@ -623,7 +650,7 @@ class HaPkmPanel extends LitElement {
               .hass=${this.hass}
               .activePath=${this._activeTab}
               @file-open=${(e) => this._openFile(e.detail.path)}
-              @tag-search=${(e) => { this._showSearch = true; this._tagSearchQuery = e.detail.tag; }}
+              @tag-search=${(e) => this._openSearch(`#tag:${e.detail.tag}`)}
             ></pkm-backlinks-panel>
           </div>
 
