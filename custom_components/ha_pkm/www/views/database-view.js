@@ -9,6 +9,7 @@
  * - Date formatting, tag pills in cells
  */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
+import { icon } from "../icons.js";
 
 const OPERATORS = [
   { id: "eq",          label: "=" },
@@ -420,7 +421,7 @@ export class PkmDatabaseView extends LitElement {
               @input=${(e) => { this._saveName = e.target.value; }}
               @keydown=${(e) => { if (e.key === "Enter") this._saveView(); }}
             />
-            <button class="btn-sm" @click=${() => this._saveView()}>💾 Save view</button>
+            <button class="btn-sm" @click=${() => this._saveView()}>${icon("save", 14)} Save view</button>
           </span>
         </div>
 
@@ -445,14 +446,14 @@ export class PkmDatabaseView extends LitElement {
 
     return html`
       <div class="toolbar">
-        <span class="toolbar-title">⊞ Database</span>
+        <span class="toolbar-title">${icon("database", 16)} Database</span>
         <input class="filter-input" type="text" placeholder="Filter rows…"
           .value=${this._rowFilter}
           @input=${(e) => { this._rowFilter = e.target.value; }}
         />
         <button class="pkm-icon-btn ${this._filterOpen ? "active" : ""}" title="Query builder"
-          @click=${() => { this._filterOpen = !this._filterOpen; }}>⚙</button>
-        <button class="pkm-icon-btn" title="Refresh" @click=${() => this._applyFilter()}>🔄</button>
+          @click=${() => { this._filterOpen = !this._filterOpen; }}>${icon("tune", 18)}</button>
+        <button class="pkm-icon-btn" title="Refresh" @click=${() => this._applyFilter()}>${icon("refresh", 18)}</button>
         <span class="note-count">${notes.length} / ${this._notes.length}</span>
       </div>
 
