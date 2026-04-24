@@ -1,149 +1,214 @@
+/**
+ * canvas-view.js – Phase 7
+ *
+ * New features:
+ * - Connection points (4 sides) appear on node hover; drag from point → create edge
+ * - Working corner-resize via drag handle
+ * - Right-click context menu: Edit label, Delete, Open as Note, Duplicate
+ * - Middle-mouse / Space+drag for panning
+ * - Label display above node header
+ * - Group node type (translucent background, larger)
+ * - Pending edge preview line during drag
+ */
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
 
 function uuid() {
-  return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  return crypto.randomUUID
+    ? crypto.randomUUID()
+    : Array.from(crypto.getRandomValues(new Uint8Array(16)))
+        .map((b, i) => (i === 6 ? (b & 0x0f) | 0x40 : i === 8 ? (b & 0x3f) | 0x80 : b)
+          .toString(16).padStart(2, "0")).join("")
+        .replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
+}
+
+const SIDES = ["top", "right", "bottom", "left"];
+
+function sidePos(node, side) {
+  const cx = node.x + node.width  / 2;
+  const cy = node.y + node.height / 2;
+  return {
+    top:    { x: cx,            y: node.y },
+    right:  { x: node.x + node.width, y: cy },
+    bottom: { x: cx,            y: node.y + node.height },
+    left:   { x: node.x,        y: cy },
+  }[side];
+}
+
+function bezierPath(x1, y1, side1, x2, y2, side2) {
+  const CTRL = 60;
+  const d = {
+    top:    { dx: 0,      dy: -CTRL },
+    right:  { dx: CTRL,  dy: 0 },
+    bottom: { dx: 0,      dy: CTRL },
+    left:   { dx: -CTRL, dy: 0 },
+  };
+  const c1 = d[side1]; const c2 = d[side2 || "top"];
+  return `M${x1},${y1} C${x1+c1.dx},${y1+c1.dy} ${x2+c2.dx},${y2+c2.dy} ${x2},${y2}`;
 }
 
 export class PkmCanvasView extends LitElement {
   static properties = {
-    hass: { type: Object },
-    path: { type: String },
-    _canvas: { state: true },
-    _viewport: { state: true },
-    _selected: { state: true },
-    _dragging: { state: true },
+    hass:     { type: Object },
+    path:     { type: String },
+    _canvas:  { state: true },
+    _vp:      { state: true },
+    _sel:     { state: true },
     _loading: { state: true },
-    _dirty: { state: true },
+    _dirty:   { state: true },
+    _ctx:     { state: true },  // context menu { x, y, nodeId }
+    _hovered: { state: true },  // hovered node id (for showing conn points)
+    _pending: { state: true },  // pending edge drag { fromNode, fromSide, x2, y2 }
   };
 
   static styles = css`
     :host { display: flex; flex-direction: column; height: 100%; }
 
-    .canvas-toolbar {
-      display: flex;
-      align-items: center;
-      padding: 4px 8px;
-      background: var(--pkm-surface);
+    .toolbar {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 10px; background: var(--pkm-surface);
       border-bottom: 1px solid var(--pkm-border);
-      gap: 6px;
-      flex-shrink: 0;
-      font-size: 13px;
+      flex-shrink: 0; font-size: 13px;
     }
-    .canvas-toolbar .path { flex: 1; color: var(--pkm-text-muted); font-size: 12px; }
+    .toolbar .path { flex: 1; font-size: 12px; color: var(--pkm-text-muted); }
+    .dirty-dot { color: var(--pkm-accent); font-size: 18px; }
+    .pkm-icon-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 28px; height: 28px; border: none; background: transparent;
+      color: var(--pkm-text-muted); border-radius: 4px; cursor: pointer;
+    }
+    .pkm-icon-btn:hover { background: var(--pkm-surface-2); color: var(--pkm-text); }
+    .hint { font-size: 10px; color: var(--pkm-text-muted); }
 
+    /* Canvas */
     .canvas-area {
-      flex: 1;
-      overflow: hidden;
-      position: relative;
+      flex: 1; position: relative; overflow: hidden;
       background: var(--pkm-bg);
       background-image: radial-gradient(circle, var(--pkm-border) 1px, transparent 1px);
       background-size: 24px 24px;
-      cursor: default;
+      user-select: none;
     }
 
-    .canvas-layer {
-      position: absolute;
-      inset: 0;
-      transform-origin: 0 0;
+    /* SVG layer for edges (below HTML nodes) */
+    .edge-svg {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none; overflow: visible;
     }
 
+    /* Transform layer for HTML nodes */
+    .node-layer { position: absolute; top: 0; left: 0; transform-origin: 0 0; }
+
+    /* Nodes */
     .canvas-node {
       position: absolute;
       background: var(--pkm-surface);
-      border: 1px solid var(--pkm-border);
-      border-radius: 6px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-      cursor: move;
-      user-select: none;
-      min-width: 120px;
-      min-height: 60px;
-      display: flex;
-      flex-direction: column;
+      border: 1.5px solid var(--pkm-border);
+      border-radius: 7px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+      display: flex; flex-direction: column;
+      min-width: 100px; min-height: 50px;
+      cursor: default;
     }
     .canvas-node.selected {
       border-color: var(--pkm-accent);
-      box-shadow: 0 0 0 2px color-mix(in srgb, var(--pkm-accent) 40%, transparent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--pkm-accent) 40%, transparent), 0 2px 12px rgba(0,0,0,0.35);
     }
-    .canvas-node-header {
-      padding: 6px 10px;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--pkm-text-muted);
+    .canvas-node.type-group {
+      background: color-mix(in srgb, var(--pkm-accent) 5%, transparent);
+      border-style: dashed;
+    }
+
+    .node-header {
+      display: flex; align-items: center; gap: 6px;
+      padding: 5px 9px;
+      font-size: 11px; font-weight: 600; color: var(--pkm-text-muted);
       border-bottom: 1px solid var(--pkm-border);
       cursor: move;
+      flex-shrink: 0;
     }
-    .canvas-node-body {
-      padding: 8px 10px;
-      flex: 1;
-      font-size: 13px;
-      overflow: auto;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-    .canvas-node-resize {
-      position: absolute;
-      bottom: 0;
-      right: 0;
-      width: 14px;
-      height: 14px;
-      cursor: se-resize;
-      opacity: 0.4;
-      font-size: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--pkm-text-muted);
-    }
-    .canvas-node-resize:hover { opacity: 1; }
-
-    .canvas-edges {
-      position: absolute;
-      inset: 0;
-      pointer-events: none;
-      overflow: visible;
+    .node-body {
+      flex: 1; padding: 8px 10px;
+      font-size: 13px; overflow: auto;
+      outline: none; white-space: pre-wrap; word-break: break-word;
+      cursor: text;
     }
 
-    edge-path {
-      fill: none;
-      stroke: var(--pkm-accent);
-      stroke-width: 2;
-      opacity: 0.7;
+    /* Resize handle */
+    .node-resize {
+      position: absolute; bottom: 2px; right: 2px;
+      width: 14px; height: 14px;
+      cursor: se-resize; color: var(--pkm-text-muted);
+      font-size: 10px; display: flex; align-items: center; justify-content: center;
+      opacity: 0.5;
+    }
+    .canvas-node:hover .node-resize { opacity: 1; }
+
+    /* Connection points */
+    .conn-pt {
+      position: absolute; width: 12px; height: 12px;
+      background: var(--pkm-accent); border-radius: 50%;
+      border: 2px solid var(--pkm-bg);
+      cursor: crosshair;
+      transform: translate(-50%, -50%);
+      z-index: 5;
+    }
+    .conn-pt:hover { transform: translate(-50%,-50%) scale(1.3); }
+
+    /* Context menu */
+    .ctx-menu {
+      position: fixed; background: var(--pkm-surface);
+      border: 1px solid var(--pkm-border); border-radius: 7px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.45); z-index: 600;
+      min-width: 160px; overflow: hidden;
+      animation: ctx-in 100ms ease;
+    }
+    @keyframes ctx-in { from { opacity:0; transform: scale(0.95); } to { opacity:1; transform: scale(1); } }
+    .ctx-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 14px; cursor: pointer; font-size: 13px;
+    }
+    .ctx-item:hover { background: var(--pkm-surface-2); }
+    .ctx-sep { height: 1px; background: var(--pkm-border); margin: 2px 0; }
+    .ctx-danger { color: var(--pkm-link-unresolved); }
+
+    /* Zoom controls */
+    .zoom-ctrl {
+      position: absolute; bottom: 14px; right: 14px;
+      display: flex; flex-direction: column; gap: 4px;
     }
 
-    .empty-canvas {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-direction: column;
-      gap: 12px;
-      color: var(--pkm-text-muted);
-      pointer-events: none;
-    }
-    .empty-canvas .hint { font-size: 13px; }
-
-    .zoom-controls {
-      position: absolute;
-      bottom: 16px;
-      right: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
+    /* Empty */
+    .empty-hint {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 10px; color: var(--pkm-text-muted); pointer-events: none;
     }
   `;
 
   constructor() {
     super();
-    this._canvas = { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 } };
-    this._viewport = { x: 0, y: 0, zoom: 1 };
-    this._selected = new Set();
-    this._dragging = null;
+    this._canvas  = { nodes: [], edges: [] };
+    this._vp      = { x: 0, y: 0, zoom: 1 };
+    this._sel     = new Set();
     this._loading = false;
-    this._dirty = false;
-    this._panning = false;
-    this._panStart = null;
+    this._dirty   = false;
+    this._ctx     = null;
+    this._hovered = null;
+    this._pending = null;
     this._autosaveTimer = null;
+    this._spaceDown = false;
+    this._ctxCloseBound = this._closeCtx.bind(this);
+    this._keydownBound  = this._onKeydown.bind(this);
+  }
+
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener("click",   this._ctxCloseBound);
+    document.addEventListener("keydown", this._keydownBound);
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    document.removeEventListener("click",   this._ctxCloseBound);
+    document.removeEventListener("keydown", this._keydownBound);
   }
 
   updated(changed) {
@@ -157,14 +222,11 @@ export class PkmCanvasView extends LitElement {
     try {
       const res = await this.hass.callWS({ type: "ha_pkm/read_canvas", path: this.path });
       const data = res.canvas || { nodes: [], edges: [] };
-      if (data.viewport) this._viewport = data.viewport;
+      if (data.viewport) this._vp = { ...this._vp, ...data.viewport };
       this._canvas = data;
     } catch (e) {
-      if (e.code === "file_not_found") {
-        this._canvas = { nodes: [], edges: [] };
-      } else {
-        console.error("Canvas load error:", e);
-      }
+      if (e.code === "file_not_found") this._canvas = { nodes: [], edges: [] };
+      else console.error("Canvas load error:", e);
     } finally {
       this._loading = false;
     }
@@ -174,12 +236,10 @@ export class PkmCanvasView extends LitElement {
     if (!this.hass || !this.path) return;
     clearTimeout(this._autosaveTimer);
     try {
-      const data = { ...this._canvas, viewport: this._viewport };
-      await this.hass.callWS({ type: "ha_pkm/write_canvas", path: this.path, canvas: data });
+      await this.hass.callWS({ type: "ha_pkm/write_canvas", path: this.path,
+        canvas: { ...this._canvas, viewport: this._vp } });
       this._dirty = false;
-    } catch (e) {
-      console.error("Canvas save error:", e);
-    }
+    } catch (e) { console.error("Canvas save error:", e); }
   }
 
   _scheduleAutosave() {
@@ -188,182 +248,355 @@ export class PkmCanvasView extends LitElement {
     this._dirty = true;
   }
 
+  // ── Coordinate helpers ───────────────────────────────────────────────────
+
   _toCanvas(clientX, clientY) {
-    const rect = this.shadowRoot.querySelector(".canvas-area").getBoundingClientRect();
-    return {
-      x: (clientX - rect.left - this._viewport.x) / this._viewport.zoom,
-      y: (clientY - rect.top  - this._viewport.y) / this._viewport.zoom,
-    };
+    const rect = this.shadowRoot.querySelector(".canvas-area")?.getBoundingClientRect();
+    if (!rect) return { x: 0, y: 0 };
+    return { x: (clientX - rect.left - this._vp.x) / this._vp.zoom,
+             y: (clientY - rect.top  - this._vp.y) / this._vp.zoom };
   }
 
-  _onCanvasDblClick(e) {
-    if (e.target !== e.currentTarget && !e.target.classList.contains("canvas-area")) return;
-    const pos = this._toCanvas(e.clientX, e.clientY);
-    const node = {
-      id: uuid(),
-      type: "text",
-      x: pos.x - 100,
-      y: pos.y - 40,
-      width: 240,
-      height: 120,
-      content: "New note",
-      color: null,
-    };
-    this._canvas = { ...this._canvas, nodes: [...this._canvas.nodes, node] };
-    this._selected = new Set([node.id]);
-    this._scheduleAutosave();
+  // ── Viewport (wheel + middle-drag) ───────────────────────────────────────
+
+  _onWheel(e) {
+    e.preventDefault();
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    const rect   = this.shadowRoot.querySelector(".canvas-area").getBoundingClientRect();
+    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
+    const nz = Math.min(5, Math.max(0.15, this._vp.zoom * factor));
+    this._vp = { x: cx - (cx - this._vp.x) * (nz / this._vp.zoom), y: cy - (cy - this._vp.y) * (nz / this._vp.zoom), zoom: nz };
   }
+
+  _onAreaMouseDown(e) {
+    if (e.button === 1 || (e.button === 0 && this._spaceDown)) {
+      e.preventDefault();
+      const sx = e.clientX - this._vp.x, sy = e.clientY - this._vp.y;
+      const onMove = (e2) => { this._vp = { ...this._vp, x: e2.clientX - sx, y: e2.clientY - sy }; };
+      const onUp   = () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+      return;
+    }
+    if (e.button === 0) this._sel = new Set();
+  }
+
+  _onKeydown(e) {
+    if (e.code === "Space")  this._spaceDown = true;
+    if (e.key  === "Delete" || e.key === "Backspace") this._deleteSelected();
+  }
+  // Space keyup
+  connectedCallback() {
+    super.connectedCallback();
+    document.addEventListener("click",   this._ctxCloseBound);
+    document.addEventListener("keydown", this._keydownBound);
+    this._keyupBound = (e) => { if (e.code === "Space") this._spaceDown = false; };
+    document.addEventListener("keyup", this._keyupBound);
+  }
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    document.removeEventListener("click",   this._ctxCloseBound);
+    document.removeEventListener("keydown", this._keydownBound);
+    document.removeEventListener("keyup",   this._keyupBound);
+  }
+
+  // ── Node interactions ────────────────────────────────────────────────────
 
   _onNodeMouseDown(e, nodeId) {
     if (e.button !== 0) return;
     e.stopPropagation();
+    if (!this._sel.has(nodeId)) this._sel = new Set([nodeId]);
+    const node   = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const startX = e.clientX, startY = e.clientY;
+    const origX  = node.x,    origY  = node.y;
+    let moved = false;
+    const onMove = (e2) => {
+      const dx = (e2.clientX - startX) / this._vp.zoom;
+      const dy = (e2.clientY - startY) / this._vp.zoom;
+      moved = true;
+      this._canvas = { ...this._canvas,
+        nodes: this._canvas.nodes.map((n) => n.id === nodeId ? { ...n, x: origX + dx, y: origY + dy } : n) };
+    };
+    const onUp = () => {
+      if (moved) this._scheduleAutosave();
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  _onResizeMouseDown(e, nodeId) {
+    e.stopPropagation();
     const node = this._canvas.nodes.find((n) => n.id === nodeId);
     if (!node) return;
-    this._dragging = { nodeId, startX: e.clientX, startY: e.clientY, origX: node.x, origY: node.y };
-    this._selected = new Set([nodeId]);
-
+    const startX = e.clientX, startY = e.clientY;
+    const origW  = node.width,  origH  = node.height;
     const onMove = (e2) => {
-      if (!this._dragging) return;
-      const dx = (e2.clientX - this._dragging.startX) / this._viewport.zoom;
-      const dy = (e2.clientY - this._dragging.startY) / this._viewport.zoom;
-      this._canvas = {
-        ...this._canvas,
-        nodes: this._canvas.nodes.map((n) =>
-          n.id === nodeId ? { ...n, x: this._dragging.origX + dx, y: this._dragging.origY + dy } : n
-        ),
-      };
+      const dw = (e2.clientX - startX) / this._vp.zoom;
+      const dh = (e2.clientY - startY) / this._vp.zoom;
+      this._canvas = { ...this._canvas,
+        nodes: this._canvas.nodes.map((n) => n.id === nodeId
+          ? { ...n, width: Math.max(100, origW + dw), height: Math.max(60, origH + dh) } : n) };
     };
-    const onUp = () => {
-      this._dragging = null;
-      this._scheduleAutosave();
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
+    const onUp = () => { this._scheduleAutosave(); window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     window.addEventListener("mousemove", onMove);
     window.addEventListener("mouseup", onUp);
   }
 
-  _onCanvasWheel(e) {
-    e.preventDefault();
-    const factor = e.deltaY < 0 ? 1.1 : 0.9;
-    const rect = this.shadowRoot.querySelector(".canvas-area").getBoundingClientRect();
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
-    const newZoom = Math.min(4, Math.max(0.2, this._viewport.zoom * factor));
-    this._viewport = {
-      x: cx - (cx - this._viewport.x) * (newZoom / this._viewport.zoom),
-      y: cy - (cy - this._viewport.y) * (newZoom / this._viewport.zoom),
-      zoom: newZoom,
-    };
-  }
-
-  _onCanvasMouseDown(e) {
-    if (e.button !== 1 || (!e.metaKey && !e.altKey && e.button !== 1)) return;
-    e.preventDefault();
-    this._panning = true;
-    this._panStart = { x: e.clientX - this._viewport.x, y: e.clientY - this._viewport.y };
-    const onMove = (e2) => {
-      if (!this._panning) return;
-      this._viewport = { ...this._viewport, x: e2.clientX - this._panStart.x, y: e2.clientY - this._panStart.y };
-    };
-    const onUp = () => {
-      this._panning = false;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-  }
-
-  _deleteSelected() {
-    if (this._selected.size === 0) return;
-    this._canvas = {
-      ...this._canvas,
-      nodes: this._canvas.nodes.filter((n) => !this._selected.has(n.id)),
-      edges: this._canvas.edges.filter((e) => !this._selected.has(e.fromNode) && !this._selected.has(e.toNode)),
-    };
-    this._selected = new Set();
+  _onDblClick(e) {
+    if (e.target !== e.currentTarget && !e.target.classList.contains("canvas-area")) return;
+    const pos = this._toCanvas(e.clientX, e.clientY);
+    const node = { id: uuid(), type: "text", x: pos.x - 120, y: pos.y - 50,
+                   width: 240, height: 120, content: "New note", color: null };
+    this._canvas = { ...this._canvas, nodes: [...this._canvas.nodes, node] };
+    this._sel = new Set([node.id]);
     this._scheduleAutosave();
   }
 
+  _onContextMenu(e, nodeId) {
+    e.preventDefault(); e.stopPropagation();
+    this._ctx = { x: e.clientX, y: e.clientY, nodeId };
+  }
+
+  _closeCtx() { this._ctx = null; }
+
+  // ── Connection points (edge drawing) ────────────────────────────────────
+
+  _onConnPtMouseDown(e, nodeId, side) {
+    e.stopPropagation();
+    const pos = sidePos(this._canvas.nodes.find((n) => n.id === nodeId), side);
+    this._pending = { fromNode: nodeId, fromSide: side, x1: pos.x, y1: pos.y, x2: pos.x, y2: pos.y };
+
+    const onMove = (e2) => {
+      const cp = this._toCanvas(e2.clientX, e2.clientY);
+      this._pending = { ...this._pending, x2: cp.x, y2: cp.y };
+    };
+    const onUp = (e2) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      // Find target node under cursor
+      const cp = this._toCanvas(e2.clientX, e2.clientY);
+      const target = this._canvas.nodes.find((n) =>
+        n.id !== nodeId &&
+        cp.x >= n.x && cp.x <= n.x + n.width &&
+        cp.y >= n.y && cp.y <= n.y + n.height
+      );
+      if (target) {
+        // Find nearest side on target
+        const targetSide = _nearestSide(target, cp);
+        const edge = { id: uuid(), fromNode: nodeId, fromSide: side, toNode: target.id, toSide: targetSide, label: null };
+        this._canvas = { ...this._canvas, edges: [...this._canvas.edges, edge] };
+        this._scheduleAutosave();
+      }
+      this._pending = null;
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
+  // ── Context menu actions ─────────────────────────────────────────────────
+
+  _ctxEditLabel() {
+    const { nodeId } = this._ctx;
+    this._closeCtx();
+    const node = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const val = prompt("Node label:", node.content);
+    if (val !== null) {
+      this._canvas = { ...this._canvas, nodes: this._canvas.nodes.map((n) => n.id === nodeId ? { ...n, content: val } : n) };
+      this._scheduleAutosave();
+    }
+  }
+
+  _ctxDuplicate() {
+    const { nodeId } = this._ctx;
+    this._closeCtx();
+    const node = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (!node) return;
+    const copy = { ...node, id: uuid(), x: node.x + 20, y: node.y + 20 };
+    this._canvas = { ...this._canvas, nodes: [...this._canvas.nodes, copy] };
+    this._sel = new Set([copy.id]);
+    this._scheduleAutosave();
+  }
+
+  _ctxOpenAsNote() {
+    const { nodeId } = this._ctx;
+    this._closeCtx();
+    const node = this._canvas.nodes.find((n) => n.id === nodeId);
+    if (node?.content?.endsWith(".md")) {
+      this.dispatchEvent(new CustomEvent("file-open", { detail: { path: node.content }, bubbles: true, composed: true }));
+    }
+  }
+
+  _ctxDelete() {
+    const { nodeId } = this._ctx;
+    this._closeCtx();
+    this._canvas = {
+      ...this._canvas,
+      nodes: this._canvas.nodes.filter((n) => n.id !== nodeId),
+      edges: this._canvas.edges.filter((e) => e.fromNode !== nodeId && e.toNode !== nodeId),
+    };
+    this._sel.delete(nodeId);
+    this._sel = new Set(this._sel);
+    this._scheduleAutosave();
+  }
+
+  _deleteSelected() {
+    if (!this._sel.size) return;
+    this._canvas = {
+      ...this._canvas,
+      nodes: this._canvas.nodes.filter((n) => !this._sel.has(n.id)),
+      edges: this._canvas.edges.filter((e) => !this._sel.has(e.fromNode) && !this._sel.has(e.toNode)),
+    };
+    this._sel = new Set();
+    this._scheduleAutosave();
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
+
   _renderEdges() {
-    const nodes = Object.fromEntries(this._canvas.nodes.map((n) => [n.id, n]));
-    return this._canvas.edges.map((edge) => {
-      const from = nodes[edge.fromNode];
-      const to = nodes[edge.toNode];
-      if (!from || !to) return "";
-      const x1 = from.x + from.width / 2;
-      const y1 = from.y + from.height / 2;
-      const x2 = to.x + to.width / 2;
-      const y2 = to.y + to.height / 2;
-      const cx = (x1 + x2) / 2;
-      return html`<path d="M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}" stroke="var(--pkm-accent)" fill="none" stroke-width="2" opacity="0.7" />`;
+    const nodeMap = Object.fromEntries(this._canvas.nodes.map((n) => [n.id, n]));
+    const paths   = this._canvas.edges.map((edge) => {
+      const fn = nodeMap[edge.fromNode]; const tn = nodeMap[edge.toNode];
+      if (!fn || !tn) return "";
+      const p1 = sidePos(fn, edge.fromSide || "right");
+      const p2 = sidePos(tn, edge.toSide   || "left");
+      const d  = bezierPath(p1.x, p1.y, edge.fromSide || "right", p2.x, p2.y, edge.toSide || "left");
+      return html`
+        <path d=${d} fill="none" stroke="var(--pkm-accent)" stroke-width="2" opacity="0.7"
+          marker-end="url(#pkm-arrow-canvas)" />
+        ${edge.label ? html`
+          <text x=${(p1.x + p2.x) / 2} y=${(p1.y + p2.y) / 2 - 6}
+            text-anchor="middle" font-size="11" fill="var(--pkm-text-muted)">${edge.label}</text>
+        ` : ""}
+      `;
+    });
+
+    // Pending edge preview
+    let pending = "";
+    if (this._pending) {
+      const { x1, y1, x2, y2, fromSide } = this._pending;
+      pending = html`<line x1=${x1} y1=${y1} x2=${x2} y2=${y2} stroke="var(--pkm-accent)" stroke-width="1.5" stroke-dasharray="5,3" opacity="0.6" />`;
+    }
+
+    return html`${paths}${pending}`;
+  }
+
+  _renderConnPoints(node) {
+    if (this._hovered !== node.id && !this._sel.has(node.id)) return "";
+    return SIDES.map((side) => {
+      const pos = sidePos(node, side);
+      return html`
+        <div class="conn-pt"
+          style="left:${pos.x - node.x}px; top:${pos.y - node.y}px"
+          @mousedown=${(e) => { e.stopPropagation(); this._onConnPtMouseDown(e, node.id, side); }}
+        ></div>
+      `;
     });
   }
 
-  render() {
-    const vp = this._viewport;
-    const transform = `translate(${vp.x}px, ${vp.y}px) scale(${vp.zoom})`;
-
-    return html`
-      <div class="canvas-toolbar">
-        <button class="pkm-icon-btn" title="Save" @click=${() => this._saveCanvas()}>💾</button>
-        <span class="path">${this.path || "Untitled Canvas"}</span>
-        ${this._dirty ? html`<span style="color:var(--pkm-accent);font-size:18px">●</span>` : ""}
-        <button class="pkm-icon-btn" title="Delete selected" @click=${() => this._deleteSelected()}>🗑️</button>
-        <span style="font-size:11px;color:var(--pkm-text-muted)">Dblclick: new node · Wheel: zoom · Mid-drag: pan</span>
-      </div>
-
-      <div
-        class="canvas-area"
-        @dblclick=${this._onCanvasDblClick}
-        @wheel=${this._onCanvasWheel}
-        @mousedown=${this._onCanvasMouseDown}
-        @click=${() => { this._selected = new Set(); }}
+  _renderNodes() {
+    return this._canvas.nodes.map((node) => html`
+      <div class="canvas-node type-${node.type} ${this._sel.has(node.id) ? "selected" : ""}"
+        style="left:${node.x}px; top:${node.y}px; width:${node.width}px; height:${node.height}px;
+               ${node.color ? `border-color:${node.color};` : ""}"
+        @mousedown=${(e) => this._onNodeMouseDown(e, node.id)}
+        @mouseenter=${() => { this._hovered = node.id; }}
+        @mouseleave=${() => { this._hovered = null; }}
+        @contextmenu=${(e) => this._onContextMenu(e, node.id)}
+        @click=${(e) => { e.stopPropagation(); this._sel = new Set([node.id]); }}
       >
-        <svg class="canvas-edges" style="transform:${transform};transform-origin:0 0;position:absolute;inset:0;width:100%;height:100%;">
-          ${this._renderEdges()}
-        </svg>
-
-        <div class="canvas-layer" style="transform:${transform}">
-          ${this._canvas.nodes.map((node) => html`
-            <div
-              class="canvas-node ${this._selected.has(node.id) ? "selected" : ""}"
-              style="
-                left:${node.x}px; top:${node.y}px;
-                width:${node.width}px; height:${node.height}px;
-                ${node.color ? `border-color:${node.color};` : ""}
-              "
-              @mousedown=${(e) => this._onNodeMouseDown(e, node.id)}
-              @click=${(e) => { e.stopPropagation(); this._selected = new Set([node.id]); }}
-            >
-              <div class="canvas-node-header">📄 ${node.type}</div>
-              <div class="canvas-node-body" contenteditable="true"
-                @input=${(e) => {
-                  node.content = e.target.innerText;
-                  this._scheduleAutosave();
-                }}
-              >${node.content}</div>
-              <div class="canvas-node-resize">⌟</div>
-            </div>
-          `)}
+        <div class="node-header" style="${node.color ? `color:${node.color}` : ""}">
+          ${node.type === "group" ? "📦" : node.type === "note" ? "📄" : "📝"} ${node.type}
         </div>
+        <div class="node-body" contenteditable="true"
+          @input=${(e) => { node.content = e.target.innerText; this._scheduleAutosave(); }}
+          @mousedown=${(e) => e.stopPropagation()}
+        >${node.content}</div>
+        <div class="node-resize" @mousedown=${(e) => this._onResizeMouseDown(e, node.id)}>⌟</div>
+        ${this._renderConnPoints(node)}
+      </div>
+    `);
+  }
 
-        ${this._canvas.nodes.length === 0 ? html`
-          <div class="empty-canvas">
-            <span style="font-size:48px">🔲</span>
-            <span class="hint">Double-click to create a node</span>
-          </div>
-        ` : ""}
-
-        <div class="zoom-controls">
-          <button class="pkm-icon-btn" @click=${() => { this._viewport = { ...this._viewport, zoom: Math.min(4, this._viewport.zoom * 1.2) }; }}>+</button>
-          <button class="pkm-icon-btn" @click=${() => { this._viewport = { x: 0, y: 0, zoom: 1 }; }}>⌂</button>
-          <button class="pkm-icon-btn" @click=${() => { this._viewport = { ...this._viewport, zoom: Math.max(0.2, this._viewport.zoom / 1.2) }; }}>−</button>
-        </div>
+  _renderContextMenu() {
+    if (!this._ctx) return "";
+    return html`
+      <div class="ctx-menu" style="left:${this._ctx.x}px; top:${this._ctx.y}px"
+        @click=${(e) => e.stopPropagation()}>
+        <div class="ctx-item" @click=${() => this._ctxEditLabel()}>✏️ Edit label</div>
+        <div class="ctx-item" @click=${() => this._ctxDuplicate()}>📋 Duplicate</div>
+        <div class="ctx-item" @click=${() => this._ctxOpenAsNote()}>📄 Open as note</div>
+        <div class="ctx-sep"></div>
+        <div class="ctx-item ctx-danger" @click=${() => this._ctxDelete()}>🗑️ Delete</div>
       </div>
     `;
   }
+
+  render() {
+    const vp = this._vp;
+    const transform = `translate(${vp.x}px,${vp.y}px) scale(${vp.zoom})`;
+
+    return html`
+      <div class="toolbar">
+        <button class="pkm-icon-btn" title="Save" @click=${() => this._saveCanvas()}>💾</button>
+        <span class="path">${this.path || "Untitled.canvas"}</span>
+        ${this._dirty ? html`<span class="dirty-dot">●</span>` : ""}
+        <button class="pkm-icon-btn" title="Delete selected (Del)" @click=${() => this._deleteSelected()}>🗑️</button>
+        <span class="hint">Dblclick: new node · Wheel: zoom · Mid/Space+drag: pan · Drag port: edge</span>
+      </div>
+
+      <div class="canvas-area"
+        @dblclick=${this._onDblClick}
+        @wheel=${this._onWheel}
+        @mousedown=${this._onAreaMouseDown}
+        @click=${() => { this._sel = new Set(); }}
+        @contextmenu=${(e) => e.preventDefault()}
+      >
+        <!-- Edge SVG (below nodes) -->
+        <svg class="edge-svg" style="transform:${transform};transform-origin:0 0;">
+          <defs>
+            <marker id="pkm-arrow-canvas" viewBox="0 -5 10 10" refX="10" refY="0"
+              markerWidth="5" markerHeight="5" orient="auto">
+              <path d="M0,-5L10,0L0,5" fill="var(--pkm-accent)" opacity="0.8"/>
+            </marker>
+          </defs>
+          ${this._renderEdges()}
+        </svg>
+
+        <!-- Node HTML layer -->
+        <div class="node-layer" style="transform:${transform}">
+          ${this._renderNodes()}
+        </div>
+
+        <!-- Empty hint -->
+        ${this._canvas.nodes.length === 0 ? html`
+          <div class="empty-hint">
+            <span style="font-size:48px">🔲</span>
+            <span>Double-click to create a node</span>
+          </div>
+        ` : ""}
+
+        <!-- Zoom controls -->
+        <div class="zoom-ctrl">
+          <button class="pkm-icon-btn" @click=${() => { this._vp = { ...vp, zoom: Math.min(5, vp.zoom * 1.25) }; }}>+</button>
+          <button class="pkm-icon-btn" @click=${() => { this._vp = { x: 0, y: 0, zoom: 1 }; }}>⌂</button>
+          <button class="pkm-icon-btn" @click=${() => { this._vp = { ...vp, zoom: Math.max(0.15, vp.zoom * 0.8) }; }}>−</button>
+        </div>
+      </div>
+
+      ${this._renderContextMenu()}
+    `;
+  }
+}
+
+function _nearestSide(node, pt) {
+  const cx = node.x + node.width / 2, cy = node.y + node.height / 2;
+  const dx = pt.x - cx, dy = pt.y - cy;
+  if (Math.abs(dx) > Math.abs(dy)) return dx > 0 ? "right" : "left";
+  return dy > 0 ? "bottom" : "top";
 }
 
 customElements.define("pkm-canvas-view", PkmCanvasView);
