@@ -20,10 +20,11 @@ import "./views/canvas-view.js";
 import "./views/database-view.js";
 import "./views/graph-view.js";
 
-const RECENT_FILES_KEY = "ha-pkm-recent-files";
+const RECENT_FILES_KEY  = "ha-pkm-recent-files";
 const SIDEBAR_STATE_KEY = "ha-pkm-sidebar";
-const VIEW_STATE_KEY = "ha-pkm-view";
-const MAX_RECENT = 20;
+const VIEW_STATE_KEY    = "ha-pkm-view";
+const MAX_RECENT        = 20;
+const RECONNECT_DELAYS  = [2000, 4000, 8000, 16000, 30000]; // ms
 
 function loadRecentFiles() {
   try { return JSON.parse(localStorage.getItem(RECENT_FILES_KEY) || "[]"); }
@@ -53,6 +54,8 @@ class HaPkmPanel extends LitElement {
       _toasts:       { state: true },
       _recentFiles:  { state: true },
       _allPaths:     { state: true },
+      _offline:      { state: true },   // true = WS disconnected
+      _reconnecting: { state: true },   // reconnect attempt counter
     };
   }
 
@@ -269,6 +272,24 @@ class HaPkmPanel extends LitElement {
       from { transform: translateY(20px); opacity: 0; }
       to   { transform: translateY(0);    opacity: 1; }
     }
+
+    /* ── Offline banner ─────────────────────────── */
+    .offline-banner {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      padding: 6px 16px;
+      background: color-mix(in srgb, var(--pkm-link-unresolved) 15%, transparent);
+      border-bottom: 1px solid var(--pkm-link-unresolved);
+      font-size: 12px; color: var(--pkm-text);
+      flex-shrink: 0;
+    }
+    .offline-banner .spinner {
+      width: 12px; height: 12px;
+      border: 2px solid var(--pkm-border);
+      border-top-color: var(--pkm-link-unresolved);
+      border-radius: 50%;
+      animation: spin 600ms linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   `;
 
   constructor() {
@@ -284,8 +305,11 @@ class HaPkmPanel extends LitElement {
     this._toasts = [];
     this._recentFiles = loadRecentFiles();
     this._allPaths = [];
-    this._toastId = 0;
-    this._eventUnsub = null;
+    this._toastId      = 0;
+    this._eventUnsub   = null;
+    this._offline      = false;
+    this._reconnecting = 0;
+    this._reconnectTimer = null;
   }
 
   connectedCallback() {
@@ -298,6 +322,7 @@ class HaPkmPanel extends LitElement {
     super.disconnectedCallback();
     window.removeEventListener("keydown", this._keydownBound, true);
     if (this._eventUnsub) this._eventUnsub();
+    clearTimeout(this._reconnectTimer);
   }
 
   updated(changed) {
@@ -315,15 +340,51 @@ class HaPkmPanel extends LitElement {
     this._initialized = true;
     await this._loadFileTree();
     this._subscribeFileEvents();
+    this._watchConnection();
+  }
+
+  // ── Connection watch ─────────────────────────────────────────────────────
+
+  _watchConnection() {
+    if (!this.hass?.connection) return;
+    this.hass.connection.addEventListener("disconnected", () => {
+      this._offline      = true;
+      this._reconnecting = 0;
+      this._scheduleReconnect();
+    });
+    this.hass.connection.addEventListener("ready", () => {
+      this._offline      = false;
+      this._reconnecting = 0;
+      clearTimeout(this._reconnectTimer);
+      this._showToast("Reconnected to Home Assistant", "info", [], 3000);
+      // Re-subscribe and refresh tree
+      this._eventUnsub?.();
+      this._subscribeFileEvents();
+      this._loadFileTree();
+    });
+  }
+
+  _scheduleReconnect() {
+    const delay = RECONNECT_DELAYS[Math.min(this._reconnecting, RECONNECT_DELAYS.length - 1)];
+    this._reconnectTimer = setTimeout(async () => {
+      this._reconnecting++;
+      try {
+        await this.hass?.connection?.reconnect?.();
+      } catch {
+        if (this._offline) this._scheduleReconnect();
+      }
+    }, delay);
   }
 
   async _loadFileTree() {
+    if (!this.hass || this._offline) return;
     try {
       const res = await this.hass.callWS({ type: "ha_pkm/list_files" });
       this._fileTree = res.files || [];
       this._allPaths = this._collectPaths(this._fileTree);
     } catch (e) {
-      console.error("File tree load error:", e);
+      // Don't show toast on every tree refresh failure – just log
+      console.warn("File tree load error:", e);
     }
   }
 
@@ -480,11 +541,22 @@ class HaPkmPanel extends LitElement {
   }
 
   async _newNote(basePath) {
-    const name = `${basePath}Untitled-${Date.now()}.md`;
-    await this.hass.callWS({ type: "ha_pkm/write_file", path: name, content: `# ${name.split("/").pop().replace(".md","")}\n` });
-    await this._loadFileTree();
-    this._openFile(name);
-    this._showToast("New note created", "info");
+    // basePath may already be a full path like "somelink.md" from ghost-note creation
+    let name;
+    if (basePath && basePath.endsWith(".md")) {
+      name = basePath;
+    } else {
+      name = `${basePath}Untitled-${Date.now()}.md`;
+    }
+    const title = name.split("/").pop().replace(/\.md$/, "");
+    try {
+      await this.hass.callWS({ type: "ha_pkm/write_file", path: name, content: `# ${title}\n` });
+      await this._loadFileTree();
+      this._openFile(name);
+      this._showToast(`"${title}" created`, "info");
+    } catch (e) {
+      this._showToast(`Failed to create note: ${e.message}`, "error");
+    }
   }
 
   async _newFile(name) {
@@ -566,14 +638,17 @@ class HaPkmPanel extends LitElement {
   }
 
   async _resolveLinkAndOpen(link) {
+    if (!this.hass) return;
     try {
       const res = await this.hass.callWS({ type: "ha_pkm/resolve_link", link });
       if (res.path) {
         this._openFile(res.path);
       } else {
-        if (confirm(`Note "${link}" doesn't exist. Create it?`)) {
-          await this._newNote(`${link}.md`);
-        }
+        // Ghost note – ask user whether to create it
+        const name = link.endsWith(".md") ? link : `${link}.md`;
+        this._showToast(`"${link}" not found`, "warn", [
+          { label: "Create note", action: () => this._newNote(name) },
+        ], 8000);
       }
     } catch (e) {
       console.error("Link resolve error:", e);
@@ -585,6 +660,16 @@ class HaPkmPanel extends LitElement {
 
     return html`
       <div class="pkm-layout">
+
+        <!-- Offline banner -->
+        ${this._offline ? html`
+          <div class="offline-banner">
+            <div class="spinner"></div>
+            Disconnected from Home Assistant – reconnecting (attempt ${this._reconnecting + 1})…
+            <span style="cursor:pointer;text-decoration:underline;margin-left:8px"
+              @click=${() => this._scheduleReconnect()}>Retry now</span>
+          </div>
+        ` : ""}
 
         <!-- Toolbar -->
         <div class="pkm-toolbar">

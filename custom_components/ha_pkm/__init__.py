@@ -40,20 +40,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     enable_watcher = conf.get(CONF_ENABLE_WATCHER, DEFAULT_ENABLE_WATCHER)
     debounce_ms = conf.get(CONF_WATCHER_DEBOUNCE_MS, DEFAULT_WATCHER_DEBOUNCE_MS)
 
-    # Ensure vault directory exists
+    # Ensure vault directory and standard subdirs exist
     vault_dir = Path(vault_path)
     await hass.async_add_executor_job(vault_dir.mkdir, 0o755, True, True)
 
+    def _init_vault_dirs():
+        for sub in [".pkm", ".trash", "templates", "attachments"]:
+            (vault_dir / sub).mkdir(exist_ok=True)
+
+    await hass.async_add_executor_job(_init_vault_dirs)
+
     # Register static path for frontend files
-    www_path = Path(__file__).parent.parent.parent / "www" / "ha-pkm-panel"
-    if www_path.exists():
-        hass.http.register_static_path(
-            "/ha-pkm-panel",
-            str(www_path),
-            cache_headers=False,
-        )
+    # Try multiple locations: HACS places custom_components/ and www/ both under config/
+    www_candidates = [
+        Path(__file__).parent.parent.parent / "www" / "ha-pkm-panel",
+        Path(hass.config.config_dir) / "www" / "ha-pkm-panel",
+    ]
+    www_path = next((p for p in www_candidates if p.exists()), None)
+    if www_path:
+        hass.http.register_static_path("/ha-pkm-panel", str(www_path), cache_headers=False)
+        _LOGGER.info("Registered static path: /ha-pkm-panel → %s", www_path)
     else:
-        _LOGGER.warning("Frontend path not found: %s", www_path)
+        _LOGGER.warning("Frontend path not found – tried: %s", [str(p) for p in www_candidates])
 
     # Register panel
     await async_register_panel(

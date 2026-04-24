@@ -17,4 +17,4 @@ NOTE_EXTENSIONS = {".md"}
 CANVAS_EXTENSION = ".canvas"
 DBVIEW_EXTENSION = ".dbview"
 TRASH_DIR = ".trash"
-HIDDEN_DIRS = {".trash", ".pkm", ".git"}
+HIDDEN_DIRS = {".trash", ".git"}   # .pkm visible so saved views are accessible

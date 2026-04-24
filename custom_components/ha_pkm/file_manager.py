@@ -38,7 +38,10 @@ class FileManager:
             return entries
 
         for item in items:
-            if item.name.startswith(".") or item.name in HIDDEN_DIRS:
+            # Hide system dirs but allow .pkm (saved views live there)
+            if item.name in HIDDEN_DIRS:
+                continue
+            if item.name.startswith(".") and item.name != ".pkm":
                 continue
             entry = self._stat_entry(item, self.vault_path)
             if item.is_dir():
