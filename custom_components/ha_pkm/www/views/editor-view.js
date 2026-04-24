@@ -227,11 +227,19 @@ export class PkmEditorView extends LitElement {
         (changed.has("hass") && this.hass && !this._currentPath && this.path)) {
       this._loadFile();
     }
-    // Lazily init CodeMirror whenever #cm-host enters the DOM
-    // (first render may not have had it if path was null or .canvas)
-    if (!this._editor) {
+    // Re-init whenever #cm-host is in DOM but editor is missing or detached.
+    // Covers: first render without path, canvas→editor switch, all-tabs-closed→reopen.
+    if (!this._editor || !this._editor.view.dom.isConnected) {
+      this._editor?.destroy();
+      this._editor = null;
       this._initEditor();
     }
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    this._editor?.destroy();
+    this._editor = null;
   }
 
   async _loadFile() {
