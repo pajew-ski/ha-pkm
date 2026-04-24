@@ -4,6 +4,7 @@ from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.components.panel_custom import async_register_panel
 
 from .const import (
@@ -58,7 +59,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ]
     www_path = next((p for p in www_candidates if p.exists()), None)
     if www_path:
-        hass.http.register_static_path("/ha-pkm-panel", str(www_path), cache_headers=False)
+        await hass.http.async_register_static_paths(
+            [StaticPathConfig("/ha-pkm-panel", str(www_path), cache_headers=False)]
+        )
         _LOGGER.info("Registered static path: /ha-pkm-panel → %s", www_path)
     else:
         _LOGGER.warning("Frontend path not found – tried: %s", [str(p) for p in www_candidates])
