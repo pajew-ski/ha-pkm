@@ -5,8 +5,8 @@ import {
   EditorView,
   ViewPlugin,
   WidgetType,
-} from "https://esm.sh/@codemirror/view@6";
-import { RangeSetBuilder } from "https://esm.sh/@codemirror/state@6";
+  RangeSetBuilder,
+} from "./codemirror-bundle.js";
 
 const WIKILINK_RE = /\[\[([^\]|#\n]+?)(?:[|#]([^\]\n]*))?\]\]/g;
 
