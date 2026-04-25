@@ -1,13 +1,20 @@
 /**
- * editor-view.js – Phase 3: resolved links, hover preview tooltip
+ * editor-view.js – Markdown editor with CodeMirror 6
+ *
+ * Design principles:
+ * - #cm-host is ALWAYS in the DOM, regardless of path/loading/preview state.
+ *   CodeMirror is therefore initialised exactly once and never re-mounted.
+ * - Empty state, canvas guard, loading and preview are absolute-positioned
+ *   overlays that sit on top of the (always-mounted) editor.
+ * - Path changes call setContent() on the existing editor instance.
  */
 
 import { LitElement, html, css } from "https://cdn.jsdelivr.net/npm/lit@3/+esm";
 import { icon } from "../icons.js";
 import { PkmEditor } from "../editor/codemirror-setup.js";
 
-const MARKED_CDN      = "https://cdn.jsdelivr.net/npm/marked@12/+esm";
-const DOMPURIFY_CDN   = "https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.es.mjs";
+const MARKED_CDN    = "https://cdn.jsdelivr.net/npm/marked@12/+esm";
+const DOMPURIFY_CDN = "https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.es.mjs";
 
 let markedLib = null;
 let dompurifyLib = null;
@@ -18,6 +25,7 @@ async function ensureLibs() {
 }
 
 const WIKILINK_IN_PREVIEW = /\[\[([^\]|#\n]+?)(?:\|([^\]\n]*))?\]\]/g;
+const FRONTMATTER_RE      = /^---\n([\s\S]*?)\n---\n?/;
 
 function renderMarkdown(content) {
   if (!markedLib || !dompurifyLib) return content;
@@ -32,8 +40,6 @@ function renderMarkdown(content) {
   });
 }
 
-const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?/;
-
 export class PkmEditorView extends LitElement {
   static properties = {
     hass:       { type: Object },
@@ -47,39 +53,32 @@ export class PkmEditorView extends LitElement {
     _saving:    { state: true },
     _fm:        { state: true },
     _fmOpen:    { state: true },
-    _tooltip:   { state: true },   // { link, x, y, preview }
+    _tooltip:   { state: true },
   };
 
   static styles = css`
     :host { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
 
     .toolbar {
-      display: flex;
-      align-items: center;
-      padding: 4px 8px;
+      display: flex; align-items: center;
+      padding: 4px 8px; gap: 4px;
       border-bottom: 1px solid var(--pkm-border);
       background: var(--pkm-surface);
-      gap: 4px;
       flex-shrink: 0;
+      min-height: 36px;
     }
+    .toolbar.hidden { visibility: hidden; height: 0; min-height: 0; padding: 0; border: none; }
+
     .toolbar-path {
-      flex: 1;
-      font-size: 12px;
-      color: var(--pkm-text-muted);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      padding: 0 8px;
+      flex: 1; padding: 0 8px;
+      font-size: 12px; color: var(--pkm-text-muted);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
     .mode-btn {
-      padding: 3px 10px;
-      border-radius: 4px;
-      border: 1px solid var(--pkm-border);
-      background: transparent;
-      color: var(--pkm-text-muted);
-      cursor: pointer;
-      font-size: 12px;
-      font-family: inherit;
+      padding: 3px 10px; border-radius: 4px;
+      border: 1px solid var(--pkm-border); background: transparent;
+      color: var(--pkm-text-muted); cursor: pointer;
+      font-size: 12px; font-family: inherit;
     }
     .mode-btn.active { background: var(--pkm-accent); color: #fff; border-color: var(--pkm-accent); }
 
@@ -88,7 +87,7 @@ export class PkmEditorView extends LitElement {
 
     .pkm-icon-btn {
       display: inline-flex; align-items: center; justify-content: center;
-      width: 28px; height: 28px;
+      width: 32px; height: 32px;
       border: none; background: transparent;
       color: var(--pkm-text-muted); border-radius: 4px; cursor: pointer;
     }
@@ -96,14 +95,11 @@ export class PkmEditorView extends LitElement {
 
     /* Frontmatter bar */
     .fm-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
+      display: flex; flex-wrap: wrap; gap: 6px;
       padding: 5px 12px;
       border-bottom: 1px solid var(--pkm-border);
       background: var(--pkm-surface);
-      flex-shrink: 0;
-      align-items: center;
+      flex-shrink: 0; align-items: center;
     }
     .fm-badge {
       display: inline-flex; align-items: center; gap: 4px;
@@ -111,46 +107,54 @@ export class PkmEditorView extends LitElement {
       background: var(--pkm-surface-2); color: var(--pkm-text-muted);
       border: 1px solid var(--pkm-border);
     }
-    .fm-key  { color: var(--pkm-accent); font-weight: 600; margin-right: 2px; }
+    .fm-key { color: var(--pkm-accent); font-weight: 600; margin-right: 2px; }
     .fm-toggle {
       margin-left: auto; background: none; border: none;
-      color: var(--pkm-text-muted); cursor: pointer; font-size: 11px; padding: 2px 6px;
+      color: var(--pkm-text-muted); cursor: pointer;
+      font-size: 11px; padding: 2px 6px;
     }
 
-    /* Editor area – #cm-host is ALWAYS in DOM; overlays sit on top */
+    /* Editor area – the editor host is ALWAYS mounted here */
     .editor-area {
-      flex: 1; overflow: hidden;
-      position: relative;           /* anchor for absolute overlays */
+      flex: 1; position: relative; overflow: hidden;
       display: flex; flex-direction: column;
+      min-height: 0;
     }
-    /* #cm-host is a normal flex item so it gets a definite height from flexbox.
-       position:absolute would lose the flexbox-assigned height on some layouts. */
     #cm-host {
-      flex: 1; overflow: hidden; min-height: 0;
+      flex: 1; min-height: 0; min-width: 0;
+      width: 100%;
     }
 
-    /* Loading overlay – covers editor without removing it from DOM */
-    .loading-overlay {
+    /* Overlays sit on top of the editor without removing it from DOM */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 12px; padding: 24px;
+      background: var(--pkm-bg);
+      color: var(--pkm-text-muted);
+      text-align: center;
+    }
+    .overlay .icon { opacity: 0.25; }
+    .overlay p { font-size: 14px; margin: 0; }
+    .overlay small { font-size: 12px; }
+
+    .overlay-empty   { z-index: 4; }   /* shown when no path */
+    .overlay-canvas  { z-index: 4; }   /* shown when path is .canvas */
+    .overlay-loading { z-index: 5; }   /* highest – covers everything */
+
+    .preview-overlay {
       position: absolute; inset: 0; z-index: 3;
-      display: flex; align-items: center; justify-content: center;
-      background: var(--pkm-bg); color: var(--pkm-text-muted); font-size: 14px;
-    }
-
-    /* Preview overlay */
-    .preview-area {
-      position: absolute; inset: 0; overflow-y: auto;
-      background: var(--pkm-bg); z-index: 2;
+      overflow-y: auto; background: var(--pkm-bg);
       padding: 24px;
     }
-    .preview-inner {
-      max-width: 860px; margin: 0 auto;
+    .preview-inner { max-width: 860px; margin: 0 auto; }
+    .preview-inner h1, .preview-inner h2, .preview-inner h3,
+    .preview-inner h4, .preview-inner h5, .preview-inner h6 {
+      color: var(--pkm-text); margin: 1.4em 0 0.4em;
     }
-    .preview-inner h1,.preview-inner h2,.preview-inner h3,
-    .preview-inner h4,.preview-inner h5,.preview-inner h6 {
-      color: var(--pkm-text); margin-top: 1.4em; margin-bottom: 0.4em;
-    }
-    .preview-inner p  { margin: 0.6em 0; line-height: 1.7; }
-    .preview-inner a  { color: var(--pkm-link); }
+    .preview-inner p { margin: 0.6em 0; line-height: 1.7; }
+    .preview-inner a { color: var(--pkm-link); }
     .preview-inner code {
       background: var(--pkm-surface-2); padding: 1px 5px;
       border-radius: 3px; font-family: var(--pkm-font-mono); font-size: 0.9em;
@@ -176,102 +180,157 @@ export class PkmEditorView extends LitElement {
 
     /* Hover tooltip */
     .link-tooltip {
-      position: fixed;
+      position: fixed; z-index: 900; pointer-events: none;
       background: var(--pkm-surface);
-      border: 1px solid var(--pkm-border);
-      border-radius: 6px;
-      padding: 12px 14px;
-      font-size: 12px;
-      line-height: 1.5;
-      max-width: 340px;
+      border: 1px solid var(--pkm-border); border-radius: 6px;
+      padding: 12px 14px; font-size: 12px; line-height: 1.5;
+      max-width: 340px; white-space: pre-wrap; word-break: break-word;
       box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-      z-index: 900;
-      pointer-events: none;
-      white-space: pre-wrap;
-      word-break: break-word;
       color: var(--pkm-text-muted);
     }
     .link-tooltip .tooltip-title {
-      font-weight: 600; color: var(--pkm-text); margin-bottom: 6px; font-size: 13px;
+      font-weight: 600; color: var(--pkm-text);
+      margin-bottom: 6px; font-size: 13px;
     }
-    .link-tooltip .tooltip-unresolved { color: var(--pkm-link-unresolved); font-style: italic; }
-
-    .empty-state {
-      display: flex; flex-direction: column; align-items: center;
-      justify-content: center; height: 100%; gap: 12px; color: var(--pkm-text-muted);
+    .link-tooltip .tooltip-unresolved {
+      color: var(--pkm-link-unresolved); font-style: italic;
     }
-    .empty-state .icon { font-size: 48px; }
-    .empty-state p { font-size: 14px; }
-    .empty-state small { font-size: 12px; }
   `;
 
   constructor() {
     super();
-    this._content   = "";
-    this._isDirty   = false;
-    this._isPreview = false;
-    this._prevHtml  = "";
-    this._loading   = false;
-    this._saving    = false;
-    this._fm        = {};
-    this._fmOpen    = true;
-    this._tooltip   = null;
-    this._editor    = null;
-    this._currentPath = null;
+    this._content       = "";
+    this._isDirty       = false;
+    this._isPreview     = false;
+    this._prevHtml      = "";
+    this._loading       = false;
+    this._saving        = false;
+    this._fm            = {};
+    this._fmOpen        = true;
+    this._tooltip       = null;
+    this._editor        = null;
+    this._currentPath   = null;
     this._resolvedLinks = new Set();
     this._tooltipTimer  = null;
   }
 
+  // ── Lifecycle ───────────────────────────────────────────────────────────
+
+  firstUpdated() {
+    // #cm-host is guaranteed to be in DOM (rendered unconditionally).
+    this._initEditor();
+    if (this._isMarkdownPath()) this._loadFile();
+  }
+
   updated(changed) {
-    if ((changed.has("path") && this.path !== this._currentPath) ||
-        (changed.has("hass") && this.hass && !this._currentPath && this.path)) {
-      this._loadFile();
+    if (changed.has("path") && this.path !== this._currentPath) {
+      this._currentPath = this.path;
+      if (this._isMarkdownPath()) {
+        this._loadFile();
+      } else {
+        // Switching to a non-markdown path: clear editor content
+        this._editor?.setContent("");
+        this._content = "";
+        this._fm = {};
+      }
     }
-    // Re-init whenever #cm-host is in DOM but editor is missing or detached.
-    // Covers: first render without path, canvas→editor switch, all-tabs-closed→reopen.
-    if (!this._editor || !this._editor.view.dom.isConnected) {
-      this._editor?.destroy();
-      this._editor = null;
-      this._initEditor();
-    }
+    // Defensive: if for any reason _editor is null after firstUpdated, retry.
+    if (!this._editor) this._initEditor();
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
+    clearTimeout(this._tooltipTimer);
     this._editor?.destroy();
     this._editor = null;
   }
 
+  _initEditor() {
+    const host = this.shadowRoot?.getElementById("cm-host");
+    if (!host || this._editor) return;
+    try {
+      this._editor = new PkmEditor(host, {
+        initialContent:  this._content,
+        onDirty:         ()  => {
+          this._isDirty = true;
+          this.dispatchEvent(new CustomEvent("dirty-change", {
+            detail: { path: this.path, isDirty: true },
+            bubbles: true, composed: true,
+          }));
+        },
+        onSave:          (c) => this._saveFile(c),
+        onTogglePreview: ()  => this._togglePreview(),
+        onClickLink:     (l) => this._onClickLink(l),
+        onHoverLink:     (l, el) => this._onHoverLink(l, el),
+        getAllPaths:     ()  => this.allPaths || [],
+      });
+      this._editor.setResolvedLinks(this._resolvedLinks);
+    } catch (e) {
+      console.error("[PkmEditorView] CodeMirror init failed:", e);
+    }
+  }
+
+  _isMarkdownPath() {
+    return !!(this.path && !this.path.endsWith(".canvas"));
+  }
+
+  // ── File I/O ────────────────────────────────────────────────────────────
+
   async _loadFile() {
-    if (!this.hass || !this.path) return;
-    this._currentPath = this.path;
+    if (!this.hass || !this._isMarkdownPath()) return;
     this._loading = true;
     this._isDirty = false;
     this._tooltip = null;
     try {
       const result = await this.hass.callWS({ type: "ha_pkm/read_file", path: this.path });
-      this._content = result.content;
-      this._parseFrontmatter(result.content);
-      await this.updateComplete;
-      this._editor?.setContent(result.content);
-      // Fetch backlinks to know which wikilinks in this file resolve
-      this._refreshResolvedLinks(result.content);
+      this._content = result.content ?? "";
+      this._parseFrontmatter(this._content);
+      this._editor?.setContent(this._content);
+      this._refreshResolvedLinks(this._content);
     } catch (e) {
-      console.error("File load error:", e);
+      console.error("[PkmEditorView] File load error:", e);
+      this.dispatchEvent(new CustomEvent("show-toast", {
+        detail: { message: `Failed to load "${this.path}": ${e.message || e}`, type: "error" },
+        bubbles: true, composed: true,
+      }));
     } finally {
       this._loading = false;
     }
   }
 
-  /** Extract all [[links]] from content, resolve each via WS, update editor. */
+  async _saveFile(content) {
+    if (!this.hass || !this._isMarkdownPath()) return;
+    this._saving = true;
+    try {
+      await this.hass.callWS({ type: "ha_pkm/write_file", path: this.path, content });
+      this._isDirty = false;
+      this._editor?.markClean();
+      this._parseFrontmatter(content);
+      this._refreshResolvedLinks(content);
+      this.dispatchEvent(new CustomEvent("file-saved", {
+        detail: { path: this.path }, bubbles: true, composed: true,
+      }));
+    } catch (e) {
+      this.dispatchEvent(new CustomEvent("show-toast", {
+        detail: { message: `Save failed: ${e.message || e}`, type: "error" },
+        bubbles: true, composed: true,
+      }));
+    } finally {
+      this._saving = false;
+    }
+  }
+
   async _refreshResolvedLinks(content) {
     if (!this.hass) return;
     const linkRe = /\[\[([^\]|#\n]+?)(?:[|#][^\]\n]*)?\]\]/g;
-    const links  = [];
+    const links = [];
     let m;
     while ((m = linkRe.exec(content)) !== null) links.push(m[1].trim());
-    if (!links.length) { this._resolvedLinks = new Set(); this._editor?.setResolvedLinks(this._resolvedLinks); return; }
-
+    if (!links.length) {
+      this._resolvedLinks = new Set();
+      this._editor?.setResolvedLinks(this._resolvedLinks);
+      return;
+    }
     const resolved = new Set();
     await Promise.all(links.map(async (link) => {
       try {
@@ -295,25 +354,7 @@ export class PkmEditorView extends LitElement {
     this._fm = fm;
   }
 
-  async _saveFile(content) {
-    if (!this.hass || !this.path) return;
-    this._saving = true;
-    try {
-      await this.hass.callWS({ type: "ha_pkm/write_file", path: this.path, content });
-      this._isDirty = false;
-      this._editor?.markClean();
-      this._parseFrontmatter(content);
-      this._refreshResolvedLinks(content);
-      this.dispatchEvent(new CustomEvent("file-saved", { detail: { path: this.path }, bubbles: true, composed: true }));
-    } catch (e) {
-      this.dispatchEvent(new CustomEvent("show-toast", {
-        detail: { message: `Save failed: ${e.message}`, type: "error" },
-        bubbles: true, composed: true,
-      }));
-    } finally {
-      this._saving = false;
-    }
-  }
+  // ── Preview toggle ──────────────────────────────────────────────────────
 
   async _togglePreview() {
     this._isPreview = !this._isPreview;
@@ -325,26 +366,28 @@ export class PkmEditorView extends LitElement {
       );
       this._prevHtml = renderMarkdown(withLinks);
     } else {
-      // Let CodeMirror re-measure after the overlay disappears
+      // Re-measure CodeMirror after the overlay disappears
       await this.updateComplete;
       this._editor?.view?.requestMeasure?.();
+      this._editor?.focus?.();
     }
   }
 
-  // ── Hover tooltip ──────────────────────────────────────────────────────
+  _onPreviewClick(e) {
+    const target = e.target.closest("[data-wikilink-target]");
+    if (target) this._onClickLink(target.getAttribute("data-wikilink-target"));
+  }
+
+  // ── Hover tooltip ───────────────────────────────────────────────────────
 
   async _onHoverLink(link, anchorEl) {
-    if (!link) { this._tooltip = null; return; }
+    if (!link || !anchorEl) { this._tooltip = null; clearTimeout(this._tooltipTimer); return; }
     clearTimeout(this._tooltipTimer);
-
-    if (!anchorEl) { this._tooltip = null; return; }
 
     const rect = anchorEl.getBoundingClientRect();
     const hostRect = this.getBoundingClientRect();
     const x = rect.left - hostRect.left;
     const y = rect.bottom - hostRect.top + 6;
-
-    // Show loading tooltip immediately
     this._tooltip = { link, x, y, preview: null, resolved: true };
 
     this._tooltipTimer = setTimeout(async () => {
@@ -355,7 +398,6 @@ export class PkmEditorView extends LitElement {
           return;
         }
         const file = await this.hass.callWS({ type: "ha_pkm/read_file", path: res.path });
-        // Strip frontmatter and take first 3 non-empty lines
         const body = file.content.replace(FRONTMATTER_RE, "").trim();
         const lines = body.split("\n").filter((l) => l.trim()).slice(0, 3).join("\n");
         this._tooltip = { link, x, y, preview: lines || "(empty)", resolved: true, path: res.path };
@@ -366,27 +408,12 @@ export class PkmEditorView extends LitElement {
   }
 
   _onClickLink(link) {
-    this.dispatchEvent(new CustomEvent("open-link", { detail: { link }, bubbles: true, composed: true }));
+    this.dispatchEvent(new CustomEvent("open-link", {
+      detail: { link }, bubbles: true, composed: true,
+    }));
   }
 
-  firstUpdated() { this._initEditor(); }
-
-  _initEditor() {
-    const host = this.shadowRoot.getElementById("cm-host");
-    if (!host || this._editor) return;
-    this._editor = new PkmEditor(host, {
-      initialContent:  this._content,
-      onDirty:         ()  => { this._isDirty = true; this.dispatchEvent(new CustomEvent("dirty-change", { detail: { path: this.path, isDirty: true }, bubbles: true, composed: true })); },
-      onSave:          (c) => this._saveFile(c),
-      onTogglePreview: ()  => this._togglePreview(),
-      onClickLink:     (l) => this._onClickLink(l),
-      onHoverLink:     (l, el) => this._onHoverLink(l, el),
-      getAllPaths:      ()  => this.allPaths || [],
-    });
-    this._editor.setResolvedLinks(this._resolvedLinks);
-  }
-
-  // ── Render ─────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────────────
 
   _renderFmBar() {
     const entries = Object.entries(this._fm);
@@ -420,33 +447,20 @@ export class PkmEditorView extends LitElement {
   }
 
   render() {
-    if (!this.path) {
-      return html`
-        <div class="empty-state">
-          <span class="icon" style="opacity:0.25;color:var(--pkm-text-muted)">${icon("noteEdit", 48)}</span>
-          <p>Open a file to start editing</p>
-          <small>Ctrl+K to search · Ctrl+P for commands</small>
-        </div>
-      `;
-    }
-
-    if (this.path.endsWith(".canvas")) {
-      return html`
-        <div class="empty-state">
-          <span class="icon" style="opacity:0.25;color:var(--pkm-text-muted)">${icon("canvas", 48)}</span>
-          <p>Canvas file</p>
-          <small>Switch to Canvas view to edit this file</small>
-        </div>
-      `;
-    }
+    const isMd     = this._isMarkdownPath();
+    const noPath   = !this.path;
+    const isCanvas = !!this.path && this.path.endsWith(".canvas");
+    const showFm   = isMd && this._fmOpen && Object.keys(this._fm).length;
+    const showFmCollapsed = isMd && !this._fmOpen && Object.keys(this._fm).length;
 
     return html`
-      <div class="toolbar">
+      <!-- Toolbar (hidden when no editable file is active) -->
+      <div class="toolbar ${isMd ? "" : "hidden"}">
         <button class="mode-btn ${!this._isPreview ? "active" : ""}"
           @click=${() => { if (this._isPreview) this._togglePreview(); }}>Edit</button>
-        <button class="mode-btn ${this._isPreview  ? "active" : ""}"
+        <button class="mode-btn ${this._isPreview ? "active" : ""}"
           @click=${() => { if (!this._isPreview) this._togglePreview(); }}>Preview</button>
-        <span class="toolbar-path">${this.path}</span>
+        <span class="toolbar-path">${this.path || ""}</span>
         ${this._saving
           ? html`<span class="saving">Saving…</span>`
           : this._isDirty
@@ -456,30 +470,44 @@ export class PkmEditorView extends LitElement {
           @click=${() => this._saveFile(this._editor?.getContent() ?? this._content)}>${icon("save", 18)}</button>
       </div>
 
-      ${this._fmOpen ? this._renderFmBar() : html`
-        ${Object.keys(this._fm).length
-          ? html`<div class="fm-bar"><button class="fm-toggle" @click=${() => { this._fmOpen = true; }}>▼ Show metadata</button></div>`
-          : ""}
-      `}
+      ${showFm ? this._renderFmBar() : ""}
+      ${showFmCollapsed ? html`
+        <div class="fm-bar"><button class="fm-toggle" @click=${() => { this._fmOpen = true; }}>▼ Show metadata</button></div>
+      ` : ""}
 
       <div class="editor-area">
-        <!-- #cm-host stays in DOM at all times so CodeMirror is never re-mounted -->
+        <!-- ALWAYS-MOUNTED CodeMirror host. Never removed from DOM. -->
         <div id="cm-host"></div>
-        ${this._loading ? html`<div class="loading-overlay">Loading…</div>` : ""}
+
+        ${noPath ? html`
+          <div class="overlay overlay-empty">
+            <span class="icon">${icon("noteEdit", 48)}</span>
+            <p>Open a file to start editing</p>
+            <small>Ctrl+K to search · Ctrl+P for commands</small>
+          </div>
+        ` : ""}
+
+        ${isCanvas ? html`
+          <div class="overlay overlay-canvas">
+            <span class="icon">${icon("canvas", 48)}</span>
+            <p>This is a canvas file</p>
+            <small>Switch to Canvas view to edit it</small>
+          </div>
+        ` : ""}
+
         ${this._isPreview ? html`
-          <div class="preview-area" @click=${this._onPreviewClick.bind(this)}>
+          <div class="preview-overlay" @click=${this._onPreviewClick.bind(this)}>
             <div class="preview-inner" .innerHTML=${this._prevHtml}></div>
           </div>
+        ` : ""}
+
+        ${this._loading ? html`
+          <div class="overlay overlay-loading">Loading…</div>
         ` : ""}
       </div>
 
       ${this._renderTooltip()}
     `;
-  }
-
-  _onPreviewClick(e) {
-    const target = e.target.closest("[data-wikilink-target]");
-    if (target) this._onClickLink(target.getAttribute("data-wikilink-target"));
   }
 }
 

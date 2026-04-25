@@ -112,6 +112,9 @@ export class PkmEditor {
     this.view = new EditorView({
       state: EditorState.create({ doc: options.initialContent || "", extensions }),
       parent: container,
+      // CodeMirror 6 inside a Shadow DOM needs the root or
+      // selection / keyboard / paste handling silently breaks.
+      root: container.getRootNode(),
     });
   }
 
