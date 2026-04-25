@@ -1,20 +1,12 @@
-/**
- * CodeMirror 6 Wikilink Extension – Phase 3 enhanced
- *
- * Changes vs Phase 2:
- * - Resolved links rendered in accent colour, unresolved in error colour
- * - Hover triggers onHoverLink callback with anchor element for tooltip
- * - resolvedLinks is a reactive Set passed from the outside; widget re-renders
- *   on each viewport update so colour stays in sync without extra state
- */
+/** CodeMirror 6 wikilink decoration + click/hover extension. */
 
 import {
   Decoration,
   EditorView,
   ViewPlugin,
   WidgetType,
-} from "https://cdn.jsdelivr.net/npm/@codemirror/view@6/+esm";
-import { RangeSetBuilder } from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/+esm";
+} from "https://esm.sh/@codemirror/view@6";
+import { RangeSetBuilder } from "https://esm.sh/@codemirror/state@6";
 
 const WIKILINK_RE = /\[\[([^\]|#\n]+?)(?:[|#]([^\]\n]*))?\]\]/g;
 

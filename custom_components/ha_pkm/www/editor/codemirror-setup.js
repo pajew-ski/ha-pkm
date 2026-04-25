@@ -1,17 +1,21 @@
 /**
- * CodeMirror 6 setup – Phase 3: resolved-link awareness wired in
+ * CodeMirror 6 setup
+ *
+ * All @codemirror/* imports use esm.sh which deduplicates shared dependencies
+ * (notably @codemirror/state) so that a single module instance is loaded.
+ * jsDelivr's +esm format bundles deps inline, causing duplicate-instance errors.
  */
 
-import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "https://cdn.jsdelivr.net/npm/@codemirror/view@6/+esm";
-import { EditorState, StateEffect } from "https://cdn.jsdelivr.net/npm/@codemirror/state@6/+esm";
+import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "https://esm.sh/@codemirror/view@6";
+import { EditorState, StateEffect } from "https://esm.sh/@codemirror/state@6";
+import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6";
+import { markdown, markdownLanguage } from "https://esm.sh/@codemirror/lang-markdown@6";
+import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6";
+import { highlightSelectionMatches, searchKeymap } from "https://esm.sh/@codemirror/search@6";
+import { autocompletion, completionKeymap } from "https://esm.sh/@codemirror/autocomplete@6";
+import { wikilinkExtension } from "./wikilink-extension.js";
 
 const _forceUpdateEffect = StateEffect.define();
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://cdn.jsdelivr.net/npm/@codemirror/commands@6/+esm";
-import { markdown, markdownLanguage } from "https://cdn.jsdelivr.net/npm/@codemirror/lang-markdown@6/+esm";
-import { oneDark } from "https://cdn.jsdelivr.net/npm/@codemirror/theme-one-dark@6/+esm";
-import { highlightSelectionMatches, searchKeymap } from "https://cdn.jsdelivr.net/npm/@codemirror/search@6/+esm";
-import { autocompletion, completionKeymap } from "https://cdn.jsdelivr.net/npm/@codemirror/autocomplete@6/+esm";
-import { wikilinkExtension } from "./wikilink-extension.js";
 
 const AUTOSAVE_DELAY = 1500;
 
