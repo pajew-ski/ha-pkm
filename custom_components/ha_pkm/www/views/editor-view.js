@@ -116,13 +116,15 @@ export class PkmEditorView extends LitElement {
 
     /* Editor area – the editor host is ALWAYS mounted here */
     .editor-area {
-      flex: 1; position: relative; overflow: hidden;
-      display: flex; flex-direction: column;
+      flex: 1;
+      position: relative;
+      overflow: hidden;
       min-height: 0;
     }
     #cm-host {
-      flex: 1; min-height: 0; min-width: 0;
-      width: 100%;
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
     }
 
     /* Overlays sit on top of the editor without removing it from DOM */
