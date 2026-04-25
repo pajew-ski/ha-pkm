@@ -1,18 +1,33 @@
 /**
  * CodeMirror 6 setup
  *
- * All @codemirror/* imports use esm.sh which deduplicates shared dependencies
- * (notably @codemirror/state) so that a single module instance is loaded.
- * jsDelivr's +esm format bundles deps inline, causing duplicate-instance errors.
+ * All CodeMirror symbols come from ./codemirror-bundle.js — a single local
+ * ESM bundle built with esbuild. One file = one @codemirror/state instance,
+ * eliminating the "multiple instances" instanceof error that occurs when
+ * several CDN URLs each bundle their own private copy of @codemirror/state.
  */
 
-import { EditorView, keymap, lineNumbers, drawSelection, highlightActiveLine } from "https://esm.sh/@codemirror/view@6";
-import { EditorState, StateEffect } from "https://esm.sh/@codemirror/state@6";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "https://esm.sh/@codemirror/commands@6";
-import { markdown, markdownLanguage } from "https://esm.sh/@codemirror/lang-markdown@6";
-import { oneDark } from "https://esm.sh/@codemirror/theme-one-dark@6";
-import { highlightSelectionMatches, searchKeymap } from "https://esm.sh/@codemirror/search@6";
-import { autocompletion, completionKeymap } from "https://esm.sh/@codemirror/autocomplete@6";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  drawSelection,
+  highlightActiveLine,
+  EditorState,
+  StateEffect,
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+  markdown,
+  markdownLanguage,
+  oneDark,
+  highlightSelectionMatches,
+  searchKeymap,
+  autocompletion,
+  completionKeymap,
+} from "./codemirror-bundle.js";
+
 import { wikilinkExtension } from "./wikilink-extension.js";
 
 const _forceUpdateEffect = StateEffect.define();
@@ -73,7 +88,6 @@ export class PkmEditor {
     this._options = options;
     this._autosaveTimer = null;
     this._isDirty = false;
-    // Mutable set – wikilink extension reads via getter on every render
     this._resolvedLinks = new Set();
 
     const updateListener = EditorView.updateListener.of((update) => {
@@ -135,7 +149,6 @@ export class PkmEditor {
   focus()       { this.view.focus(); }
   destroy()     { if (this._autosaveTimer) clearTimeout(this._autosaveTimer); this.view.destroy(); }
 
-  /** Call whenever the resolved-link set changes so wikilinks re-colour. */
   setResolvedLinks(links) {
     this._resolvedLinks = links instanceof Set ? links : new Set(links);
     this.view.dispatch({ effects: _forceUpdateEffect.of(null) });
