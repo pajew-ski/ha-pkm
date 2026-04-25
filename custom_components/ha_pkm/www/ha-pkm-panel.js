@@ -575,6 +575,17 @@ class HaPkmPanel extends LitElement {
   _setView(view) {
     this._currentView = view;
     localStorage.setItem(VIEW_STATE_KEY, view);
+
+    // Auto-switch active tab to one matching the view type, so "Editor" view
+    // doesn't sit on a .canvas tab (and vice versa). Database/Graph are
+    // workspace views that stay independent of the active tab.
+    if (view === "editor" && this._activeTab?.endsWith(".canvas")) {
+      const md = [...this._tabs].reverse().find((t) => !t.path.endsWith(".canvas"));
+      if (md) this._activeTab = md.path;
+    } else if (view === "canvas" && this._activeTab && !this._activeTab.endsWith(".canvas")) {
+      const cv = [...this._tabs].reverse().find((t) => t.path.endsWith(".canvas"));
+      if (cv) this._activeTab = cv.path;
+    }
   }
 
   _toggleSidebar() {
