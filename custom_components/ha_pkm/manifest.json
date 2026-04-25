@@ -1,7 +1,7 @@
 {
   "domain": "ha_pkm",
   "name": "ha-pkm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "documentation": "https://github.com/pajew-ski/ha-pkm",
   "requirements": ["watchdog==3.0.0"],
   "dependencies": ["frontend", "websocket_api"],
